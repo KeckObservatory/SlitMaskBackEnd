@@ -1,0 +1,42 @@
+import logging
+
+SLITMASK_LOGNAME = 'slitmask_api'
+
+
+def get_log():
+    log_name = SLITMASK_LOGNAME
+
+    # get the log if already exists
+    log = logging.getLogger(log_name)
+    if not log.handlers:
+        print('an error occurred while getting the log')
+        return None
+
+    return log
+
+
+def configure_logger(log_dir):
+    log_name = SLITMASK_LOGNAME
+
+    # get the log if already exists
+    log = logging.getLogger(log_name)
+    if log.handlers:
+        return log
+
+    # set-up the logger
+    log_path = f'{log_dir}/{log_name}.log'
+    log.setLevel(logging.INFO)
+
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(funcName)s - %(message)s')
+
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setFormatter(formatter)
+    log.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    log.addHandler(stream_handler)
+
+    log.info("Starting SlitMask Database Flask Server.")
+
+    return log
