@@ -19,5 +19,9 @@ PERPETUAL_DATE = '2035-01-01'
 # define what recent means
 RECENT_NDAYS = 14
 
-
+# early in DEIMOS we decided to mill all masks with 0.015 inch tool
+# so we hard code the mill tool diameter here
+# in the same fashion as Tcl code CGI/makeMill.sin
+# in the same fashion as Tcl code Tlib/notifyBadSlits
+TOOL_DIAMETER = 15
 

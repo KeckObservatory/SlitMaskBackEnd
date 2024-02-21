@@ -192,7 +192,7 @@ mdfcontent = {
                 'BluCreat'      : colAttr('chararray',  REQUIRED),
                 'BluDate'       : colAttr('chararray',  REQUIRED),
                 'LST_Use'       : colAttr('float',      REQUIRED),
-                'Date_Use'      : colAttr('chararray',  REQUIRED),
+                'DATE_USE'      : colAttr('chararray',  REQUIRED),
                 'TELESCOP'      : colAttr('chararray',  REQUIRED),
                 'RefrAlg'       : colAttr('chararray',  REQUIRED),
                 'AtmTempC'      : colAttr('float',      REQUIRED),

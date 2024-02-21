@@ -6,14 +6,16 @@ import psycopg2
 import psycopg2.extras
 import subprocess
 
+from datetime import date, timedelta
 from slitmask_queries import get_query
 from wspgconn import WsPgConn
 from flask import request
 from gnuplot5 import *
 
-from mask_constants import MASK_ADMIN
+from mask_constants import MASK_ADMIN, RECENT_NDAYS
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
+from collections import OrderedDict
 
 def start_up(app_path, config_name='catalog_config.ini'):
     config_filename = config_name
@@ -181,6 +183,18 @@ def commitOrRollback(db):
     return 0, "ERROR undocumented database status"
 
 
+def get_recent_day(request):
+    try:
+        recent_days = int(request.args.get('number-days'))
+    except (ValueError, TypeError):
+        recent_days = None
+
+    if not recent_days or int(recent_days) <= 0:
+        recent_days = RECENT_NDAYS
+
+    recent_date = date.today() - timedelta(days=recent_days)
+
+    return recent_date
 
 
 # import matplotlib.pyplot as plt
@@ -304,41 +318,69 @@ def generate_svg_plot(user_info, info_results, slit_results, bluid):
     plot_file_name = svgfn.replace('gnup', 'svg')
     return plot_file_name, svgx, svgy
 
-# def get_time_days(t_number, t_unit):
-#     """
-#     Transfrom the input number and unit into the number of days.
-#
-#     Maximum time to extend is one year,  numbers are truncated to 365.
-#
-#     :param t_number:
-#     :type t_number:
-#     :param t_unit:
-#     :type t_unit:
-#     :return:
-#     :rtype:
-#     """
-#     # not using python match because >=3.10
-#     if t_unit == 'year':
-#         t_number = 1
-#     elif t_unit == 'month':
-#         # max extend is 12 months
-#         if t_number > 12:
-#             t_number = 12
-#         # end if
-#     elif t_unit == 'week':
-#         # max extend is 52 weeks
-#         if t_number > 52:
-#             t_number = 52
-#         # end if
-#     elif t_unit == 'day':
-#         # max extend is 365 daysnte
-#         if t_number > 365:
-#             t_number = 365
-#         # end if
-#     else:
-#         log = log_fun.get_log()
-#         # t_unit is not recognized
-#         # calling routine should not have tried this
-#         log.error("unrecognized time unit %s" % t_unit )
-#         return FAILURE          # unknown t_unit
-#     # end if
+
+def order_mask_design(results):
+
+    # define the order and make keys GUI friendly
+    new_keys_map = [
+        ('instrume', 'Instrument'), ('desname', 'Design-Name'), ('projname', 'Project-Name'),
+        ('ra_pnt', 'RA'), ('dec_pnt', 'DEC'), ('equinpnt', 'Equinox'),
+        ('lst_pnt', 'LST-Observation'), ('pa_pnt', 'Postion-Angle'), ('radepnt', 'Coord-Representation'),
+        ('date_pnt', 'Date-Observation'), ('desdate', 'Design-Date'), ('date_pnt', 'Date-Observation'),
+        ('desnslit', 'Slit-Design-Number'), ('desnobj', 'Design-Object-Number'), ('descreat', 'Design-Creation'),
+        ('desid', 'Design-ID'), ('masktype', 'Mask-Type'), ('despid', 'User-Id-Design'),
+    ]
+
+    return OrderedDict((new_key, results[orig_key]) for orig_key, new_key in new_keys_map)
+
+
+def order_mill_queue(results):
+
+    # define the order and make keys GUI friendly
+    new_keys_map = [
+        ('desid', 'Design-ID'), ('bluid', 'Blue-ID'),
+        ('guiname', 'Mask-Name'), ('desname', 'Design-Name'),
+        ('desnslit', 'Number-Slits'), ('instrume', 'Instrument'),
+        ('status', 'Status'), ('millseq', 'Mill-Sequence'),
+        ('date_use', 'Use-Date'), ('stamp', 'Time-Stamp')
+    ]
+
+    new_results = []
+    for result in results:
+        new_results.append(OrderedDict((new_key, result[orig_key]) for orig_key, new_key in new_keys_map))
+
+    return new_results
+
+
+def order_inventory(results):
+    new_keys_map = [
+        ('desid', 'Design-ID'), ('despid', 'Design-PI-ID'), ('uid', 'User ID'),
+        ('projname', 'Project-Name'), ('desname', 'Design-Name'),
+        ('desnslit', 'Number-Slits'), ('desnobj', 'Number-Objects'),
+        ('instrume', 'Instrument'),
+        ('ra_pnt', 'RA'), ('dec_pnt', 'DEC'),
+        ('radepnt', 'Coordinates'), ('equinpnt', 'Equinox'),
+        ('pa_pnt', 'Position Angle'), ('lst_pnt', 'LST'), ('date_pnt', 'Observation Date'),
+        ('masktype', 'Mask-Type'), ('descreat', 'Design-Creation'), ('desdate', 'Design-Date'), ('stamp', 'Time-Stamp')
+    ]
+
+    new_results = []
+    for result in results:
+        new_results.append(OrderedDict((new_key, result[orig_key]) for orig_key, new_key in new_keys_map))
+
+    return new_results
+
+
+def order_cal_inventory(results):
+    new_keys_map = [
+        ('maskid', 'Mask-ID'), ('guiname', 'Name'), ('bluname', 'Blueprint-Name'),
+        ('bluid', 'Blue-ID'), ('date_use', 'Date-Use'),
+        ('milldate', 'Mill-Date'), ('instrume', 'Instrument'),
+        ('instrume', 'Instrument'), ('desid', 'Design-ID')
+    ]
+
+    new_results = []
+    for result in results:
+        new_results.append(OrderedDict((new_key, result[orig_key]) for orig_key, new_key in new_keys_map))
+
+    return new_results

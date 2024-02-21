@@ -35,16 +35,16 @@ class MaskValidation:
 
         return False
 
-    def user_email(self, db):
-        if db.maskumail is not None:
-            return True
-
-        msg = 'no mask user mail defined.'
-        self.log.warning(msg)
-        self.err_report.append(msg)
-        db.disconnect()
-
-        return False
+    # def user_email(self, db):
+    #     if self.keck_id is not None:
+    #         return True
+    #
+    #     msg = 'no mask user mail defined.'
+    #     self.log.warning(msg)
+    #     self.err_report.append(msg)
+    #     db.disconnect()
+    #
+    #     return False
 
     def slit_number(self):
         data_shape = self.hdul['DesiSlits'].data.shape[0]
@@ -61,6 +61,21 @@ class MaskValidation:
         return False
 
     def date_use(self):
+        # TODO
+        # +  # we require that MaskBlu.DATE_USE not be too old
+        # +  # Currently too old is set at yesterday.
+        # +  # Maybe we should tolerate last week, but the idea here is
+        # +  # that we do not want people submitting really old mask designs
+        # +  # without updating their astrometric characteristics.
+        # +  # use astropy.Time because that handles all FITS DATE* values
+        # +    BluDATE_USE = hdul['MaskBlu'].data['DATE_USE'][ONLYONE]
+        # +    date_use = Time(BluDATE_USE, format='fits')
+        # +    tooOld = Time.now() - 1
+        # +
+        # if date_use < tooOld:
+        #     +        msg = ("MaskBlu.DATE_USE %s is older than %s" % (BluDATE_USE, tooOld.fits))
+        #
+
         # we require that MaskBlu.Date_Use be in the future
         # python3 date parse code is fragile because the python devs
         # could not stop messing with the methods in datetime
@@ -69,8 +84,9 @@ class MaskValidation:
         mask_use_date = self.hdul['MaskBlu'].data['Date_Use'][0]
         mask_date_use_dt = datetime.strptime(mask_use_date, '%Y-%m-%d')
         now = datetime.now()
-        #nowiso = datetime.strftime(now, '%Y-%m-%d')
-        nowiso = '2020-01-01'
+        now = datetime.strptime('2020-01-01', '%Y-%m-%d')
+        nowiso = datetime.strftime(now, '%Y-%m-%d')
+
         if mask_date_use_dt > now:
             return True
 
@@ -79,6 +95,24 @@ class MaskValidation:
         self.err_report.append(msg)
 
         return False
+
+    def date_pnt(self):
+        design_date_pnt = self.hdul['MaskDesign'].data['DATE_PNT'][0]
+        print(design_date_pnt)
+        try:
+            date_pnt = datetime.strptime(design_date_pnt,  '%Y-%m-%d')
+        except ValueError:
+            date_pnt = datetime.strptime(design_date_pnt,  '%Y-%m-%dT%H:%M:%S')
+
+        b1900iso = '1900-01-01'
+        b1900 = datetime.strptime(b1900iso, '%Y-%m-%d')
+        if date_pnt < b1900:
+            msg = f"MaskDesign.DATE_PNT {design_date_pnt} is before B1900 {b1900iso}"
+            self.log.warning(msg)
+            self.err_report.append(msg)
+            return False
+
+        return True
 
     def design_slits(self):
         # loop over content of DesiSlits

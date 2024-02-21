@@ -3,6 +3,7 @@ import numpy
 from datetime import datetime
 
 from mdf_content import mdfcontent
+from apiutils import MaskUserObId
 import logger_utils as log_fun
 
 
@@ -19,7 +20,16 @@ def mdf_table_rows(hdul, err_report, log):
         msg = "MaskDesign has more than one row.  We will ingest only one."
         log.warning(msg)
         err_report.append(msg)
-        return True, err_report
+        # return True, err_report
+
+    # DesId = hdul['MaskDesign'].data['DesId'][ONLYONE]
+    # INSTRUME = hdul['MaskDesign'].data['INSTRUME'][ONLYONE]
+    # DesNslit = hdul['MaskDesign'].data['DesNslit'][ONLYONE]
+    # DesDATE_PNT = hdul['MaskDesign'].data['DATE_PNT'][ONLYONE]
+    #
+    # # find e-mail address of mask designer
+    # DesAuth = hdul['MaskDesign'].data['DesAuth'][ONLYONE]
+    # DesAuthEmail = mbox2email(DesAuth)
 
     return True, err_report
 
@@ -59,7 +69,7 @@ def set_design_pid(db, hdul, maps):
         log.error(msg)
         # err_report.append(msg)
     else:
-        maps.obid[DesAuth] = DesPId
+        maps.obid[DesAuth] = design_pid
 
     return maps
 
@@ -114,50 +124,6 @@ def mbox2email(string):
     # end if
 
 # end def mbox2email()
-
-# TODO logged in user has email,  keck_id (will add ob_id)
-# if email doesn't match,  check the mask database observer table?
-def MaskUserObId(db, useremail):
-    """
-
-    input:
-        db - connection to PgSQL database with Keck slitmask info
-        useremail - e-mail address to seek
-    """
-    log = log_fun.get_log()
-
-    userQuery = f"select ObId from Observers where email ilike {useremail}"
-
-    try:
-        db.cursor.execute(userQuery, (useremail,) )
-    except Exception as e:
-        log.error( "userQuery failed: exception: {e}")
-        return None
-
-    results = db.cursor.fetchall()
-
-    lenres = len(results)
-
-    if lenres < 1:
-        # lenres < 1 means there is no Observer with email useremail
-        msg = ( "%s is not a registered mask user" % (useremail))
-        log.warning(msg)
-        # need to print/return other information
-        print(msg)
-        return None
-    elif lenres > 1:
-        # lenres > 1, this should be impossible according to our rules
-        msg = ("db error: %s > 1 mask users with email %s" % (useremail))
-        log.error(msg)
-        # need to print/return other information
-        print(msg)
-        return None
-    # end if
-
-    # lenres == 1, row is in results[0]
-    return results[0]['obid']
-
-# end def MaskUserObId()
 
 
 def valTableExt(hdul, extname):

@@ -20,7 +20,8 @@ ownership_queries = {
         SELECT BluPId AS MaskId
         FROM MaskBlu
         WHERE DesId = %s and BluPId = %s;
-        """
+        """,
+    "design_to_blue": "select bluid from maskblu where desid = %s"
 }
 
 
@@ -34,13 +35,22 @@ retrieval_queries = {
         ORDER BY b.Date_Use
         """,
 
-    "perpetual": f"""
+    "standard_mask": f"""
         SELECT m.MaskId, b.GUIname, b.BluName, b.BluId, b.Date_Use,
                m.milldate, d.instrume, d.desid
         FROM MaskBlu b, Mask m, MaskDesign d
         WHERE b.status < {MaskBluStatusFORGOTTEN} 
               AND b.Date_Use >= TIMESTAMP '{PERPETUAL_DATE}'
               AND m.bluid = b.bluid AND d.DesId = b.DesId
+        """,
+
+    "user_inventory": """
+        SELECT d.*
+        FROM MaskDesign d, Observers o 
+        WHERE o.ObId = d.DesPId 
+        AND (d.DesPId = %s OR d.DesId IN 
+            (SELECT DesId FROM MaskBlu WHERE BluPId = %s)) 
+        ORDER BY d.stamp DESC;
         """,
 
     "blueprint": """
@@ -54,7 +64,7 @@ retrieval_queries = {
                b.slitY3, b.slitX4, b.slitY4, b.dSlitId, d.slitTyp
         FROM BluSlits b, DesiSlits d
         WHERE b.BluId = %s and d.dSlitId = b.dSlitId
-    """,
+        """,
 
     "design": "SELECT * FROM MaskDesign WHERE DesId = %s",
 
@@ -161,7 +171,7 @@ admin_queries = {
         """,
 
     "observer_mask": """
-        SELECT o.FirstNm, o.LastNm, d.DesId, b.BluId, b.status, d.DesPId, 
+        SELECT o.FirstNm, o.LastNm, d.DesPId, d.DesId, b.BluId, b.status,  
                b.BluPId, m.MaskId
         FROM Observers o, MaskDesign d, MaskBlu b, Mask m
         WHERE (
@@ -188,11 +198,11 @@ admin_queries = {
           AND d.DesPId = o.ObId
           )
         )
-        ORDER BY m.MaskId
+        ORDER BY d.DesPId
         """,
 
     "observer_no_mask": """
-        select o.FirstNm, o.LastNm, d.DesId, b.BluId, b.status, d.DesPId, b.BluPId, -1 as MaskId, b.Date_Use
+        select o.FirstNm, o.LastNm, d.DesPId, d.DesId, b.BluId, b.status, b.BluPId, -1 as MaskId, b.Date_Use
         from Observers o, MaskDesign d, MaskBlu b
         where
         b.BluId not in (select BluId from Mask)
@@ -225,7 +235,7 @@ admin_queries = {
 
 ingest_queries = {
     "mask_design_insert": """
-    INSERT INTO maskdesign (
+    INSERT INTO MaskDesign (
         DesId,
         DesName,
         DesPId,
@@ -243,8 +253,8 @@ ingest_queries = {
         PA_PNT,
         DATE_PNT,
         LST_PNT,
-        stamp,
-        maskumail
+        uid,
+        stamp
     ) VALUES (
         DEFAULT, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
         DEFAULT, %s) 
@@ -260,7 +270,7 @@ ingest_queries = {
             BluCreat,
             BluDate,
             LST_Use,
-            DATE_Use,
+            DATE_USE,
             TeleId,
             AtmTempC,
             AtmPres,

@@ -2,6 +2,7 @@ import json
 import math
 import logging
 import argparse
+import subprocess
 from os import path
 from datetime import datetime, date, timedelta
 
@@ -17,7 +18,8 @@ import ingest_fun
 # import dbutils as dbutils
 from wspgconn import WsPgConn
 
-from mask_constants import MASK_ADMIN, MASK_USER, MASK_LOGIN, RECENT_NDAYS, USER_TYPE_STR
+from mask_constants import MASK_ADMIN, MASK_USER, MASK_LOGIN, RECENT_NDAYS, \
+    USER_TYPE_STR, MaskBluStatusFORGOTTEN, TOOL_DIAMETER
 
 APP_PATH = path.abspath(path.dirname(__file__))
 TEMPLATE_PATH = path.join(APP_PATH, "Templates/")
@@ -34,11 +36,21 @@ def log_response_code(response):
     return response
 
 
+def serialize_datetime(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+
+
 def create_response(success=1, data={}, err='', stat=200):
     data = data if data is not None else []
 
     result_dict = {'success': success, 'data': data, 'error': err}
-    response = make_response(jsonify(result_dict))
+    # response = make_response(jsonify(result_dict))
+    response = make_response(
+        json.dumps(
+            result_dict, indent=2, sort_keys=False, default=serialize_datetime
+        )
+    )
     response.status_code = stat
     response.headers['Content-Type'] = 'application/json'
 
@@ -70,34 +82,33 @@ class UserInfo:
         curse.execute(obid_query, None)
         results = curse.fetchall()
 
+        # TODO this is a hack,  need something more permenant
         # if no entry in the mask observer table,  use the keck_id
         if not results:
-            return self.keck_id
+            # check if an obid matches the keck if (avoid already defined keck-ids)
+            obid_query = f"select obid from observers where obid={self.keck_id}"
+            curse.execute(obid_query, None)
+            results = curse.fetchall()
+            if not results:
+                return self.keck_id
+
+            return self.keck_id * 1000
 
         return results[0][0]
 
 
-# TODO this needs to get keck-id from cookies / userinfo
 def init_api():
-    # keck_id = request.args.get('keck-id')
-    # ignore-cook = request.args.get('ignore-cookies')
-    #
-    # if ignore-cook:
-        # steve
-        # keck_id = '1231' # sla
-        # keck_id = '4444' # not in db
-
     userinfo = gen_utils.get_userinfo()
+    if not userinfo:
+        return None, None
+
     keck_id = userinfo['Id']
     user_email = userinfo['Email']
-
-    # todo move the URL out
-    if not keck_id:
-        return None, None
 
     db_obj = WsPgConn(keck_id)
     if not db_obj.db_connect():
         log.error(f'could not connect to database with id: {keck_id}')
+        return None, None
 
     log.info(f"keck ID {keck_id}, user type: {db_obj.get_user_type()}")
 
@@ -117,12 +128,36 @@ def init_api():
 """
 
 
+# @app.route("/slitmask/upload-mdf", methods=['POST'])
+# def upload_mdf():
+#     if 'mdf_file' not in request.files:
+#         return create_response(success=0, err='No file part', stat=400)
+#
+#     mdf_file = request.files['file']
+#
+#     if mdf_file.filename == '':
+#         return create_response(success=0, err='No selected MDF file', stat=400)
+#
+#     db_obj, user_info = init_api()
+#     if not db_obj:
+#         return redirect(LOGIN_URL)
+#
+#     maps = ingest_fun.mdf2dbmaps()
+#     succeeded, err_report = ingest_fun.ingestMDF(mdf_file, db_obj, maps)
+#     if succeeded:
+#         return create_response(data={'msg': 'Mask was ingested into the database.'})
+#
+#     errors = "\n".join([f"• {item}" for item in err_report])
+#
+#     return create_response(success=0, err=errors, stat=503)
+
+
 @app.route("/slitmask/upload-mdf", methods=['POST'])
 def upload_mdf():
-    if 'mdf_file' not in request.files:
+    if 'maskFile' not in request.files:
         return create_response(success=0, err='No file part', stat=400)
 
-    mdf_file = request.files['file']
+    mdf_file = request.files['maskFile']
 
     if mdf_file.filename == '':
         return create_response(success=0, err='No selected MDF file', stat=400)
@@ -132,14 +167,13 @@ def upload_mdf():
         return redirect(LOGIN_URL)
 
     maps = ingest_fun.mdf2dbmaps()
-    succeeded, err_report = ingest_fun.ingestMDF(mdf_file, db_obj, maps)
+    succeeded, err_report = ingest_fun.ingestMDF(user_info.keck_id, mdf_file, db_obj, maps)
     if succeeded:
         return create_response(data={'msg': 'Mask was ingested into the database.'})
 
     errors = "\n".join([f"• {item}" for item in err_report])
 
     return create_response(success=0, err=errors, stat=503)
-
 
 """
 ################################################################################
@@ -167,20 +201,19 @@ def get_mill_queue():
     if not user_info:
         return redirect(LOGIN_URL)
 
-    db = db_obj.get_conn()
-    curse = db.cursor()
-
+    curse = db_obj.get_dict_curse()
     if not do_query('mill', curse, None):
         return create_response(success=0, err='Database Error!', stat=503)
 
-    results = curse.fetchall()
+    results = gen_utils.get_dict_result(curse)
 
-    return create_response(data=results)
+    ordered_results = gen_utils.order_mill_queue(results)
+
+    return create_response(data=ordered_results)
 
 
-# @app.route("/slitmask/standard-masks")
-@app.route("/slitmask/perpetual-masks")
-def get_perpetual_masks():
+@app.route("/slitmask/calibration-masks")
+def get_calibration_masks():
     """
     get the list of masks with indefinitely long life, i.e.,
     masks with Date_Use in the far future
@@ -201,20 +234,51 @@ def get_perpetual_masks():
     if not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
-    db = db_obj.get_conn()
-    curse = db.cursor()
-
-    if not do_query('perpetual', curse, None):
+    curse = db_obj.get_dict_curse()
+    if not do_query('standard_mask', curse, None):
         return create_response(success=0, err='Database Error!', stat=503)
 
-    results = curse.fetchall()
+    results = gen_utils.get_dict_result(curse)
+    ordered_results = gen_utils.order_cal_inventory(results)
 
-    return create_response(data=results)
+    return create_response(data=ordered_results)
 
 
 @app.route("/slitmask/user-mask-inventory")
 def get_user_mask_inventory():
-    return create_response(err='NOT IMPLEMENTED', data={})
+    # def getUserMaskInventory(db):
+    """
+    get a list of mask records for the logged-in user
+
+    inputs:
+    db          our database object knows the logged-in user
+    queryLimit  ignored because the full result will be manageable
+                the caller can limit what it displays
+                and the original cgiTcl implementation relied on
+                an obscure feature of SybTcl
+
+    outputs:
+    array of mask records
+
+    old web pages invoke this from idcheck button "Show Mask Inventory"
+    old web pages produce this using code in inventory
+    """
+    # initialize db,  get user information,  redirect if not logged in.
+    db_obj, user_info = init_api()
+    if not user_info:
+        return redirect(LOGIN_URL)
+
+
+    curse = db_obj.get_dict_curse()
+    if not do_query('user_inventory', curse, (user_info.ob_id, user_info.ob_id)):
+        committed, msg = gen_utils.commitOrRollback(db_obj)
+        log.error(f'Database Error!, commit: {committed}, msg: {msg}')
+        return create_response(success=0, err='Database Error!', stat=503)
+
+    results = gen_utils.get_dict_result(curse)
+    ordered_results = gen_utils.order_inventory(results)
+
+    return create_response(data=ordered_results)
 
 
 @app.route("/slitmask/user-file-upload-history")
@@ -234,13 +298,16 @@ def get_mask_plot():
 
       outputs:
         path to SVG file with the plot
-
-    curl "http://10.96.10.115:16815/slitmask/mask-plot?keck-id=1231&blue-id=447"
     """
-    blue_id = request.args.get('blue-id')
-    if not blue_id:
+    # blue_id = request.args.get('blue-id')
+    # if not blue_id:
+    #     return create_response(success=0, stat=401,
+    #                            err=f'blue-id is a required parameter!')
+
+    design_id = request.args.get('design-id')
+    if not design_id:
         return create_response(success=0, stat=401,
-                               err=f'blue-id is a required parameter!')
+                               err=f'design-id is a required parameter!')
 
     # initialize db,  get user information,  redirect if not logged in.
     db_obj, user_info = init_api()
@@ -248,18 +315,30 @@ def get_mask_plot():
         return redirect(LOGIN_URL)
 
     if user_info.user_type not in (MASK_ADMIN, MASK_USER):
-        msg = f'User: {user_info.keck_id} with access: {user_info.user_type} is Unauthorized!'
-        log.warning(msg)
+        msg = f'User: {user_info.keck_id} with access: {user_info.user_type} ' \
+              f'is Unauthorized!'
         return create_response(success=0, err=msg, stat=401)
 
+    curse = db_obj.get_dict_curse()
+    # get the blue_id from the design_id
+    if not do_query('design_to_blue', curse, (design_id,)):
+        return create_response(success=0, err='Database Error!', stat=503)
+
+    blue_id_results = gen_utils.get_dict_result(curse)
+    if not blue_id_results or 'bluid' not in blue_id_results[0]:
+        return create_response(
+            err=f'Database Error,  no blue id found for design ID {design_id}!',
+            success=0, stat=503
+        )
+    print('vble', blue_id_results)
+    blue_id = blue_id_results[0]['bluid']
+
+    # confirm the user is listed as either BluPId or DesPId
     if not utils.my_blueprint(user_info, db_obj, blue_id):
         msg = f'User: {user_info.keck_id} with access: {user_info.user_type} ' \
               f'is Unauthorized to view blue print: {blue_id}!'
-        log.warning(msg)
         return create_response(success=0, err=msg, stat=403)
 
-    # TODO why does this check both the DesId and BluId
-    curse = db_obj.get_dict_curse()
     if not do_query('blueprint', curse, (blue_id,)):
         return create_response(success=0, err='Database Error!', stat=503)
 
@@ -275,16 +354,18 @@ def get_mask_plot():
         log.error(msg)
         return create_response(success=0, err=msg, stat=422)
 
+    # find slit positions
     if not do_query('slit', curse, (blue_id,)):
         return create_response(success=0, err='Database Error!', stat=503)
 
     slit_results = gen_utils.get_dict_result(curse)
 
-    fname = gen_utils.create_svg(user_info, info_results, slit_results, blue_id)
+    fname = gen_utils.generate_svg_plot(user_info, info_results, slit_results, blue_id)
+    print(fname)
 
-    return send_file(fname, mimetype='image/svg+xml', as_attachment=True)
+    # return send_file(fname, mimetype='image/svg+xml', as_attachment=True, filename='plot.svg')
+    return send_file(fname[0], mimetype='image/svg+xml')
     # return render_template('svg_viewer.html', svg_content=svg_content)
-
 
 
 @app.route("/slitmask/user-access-level")
@@ -368,12 +449,157 @@ def forget_mask():
 
 @app.route("/slitmask/mill-mask")
 def mill_mask():
+    """
+    In the api specification section 2.3 this is "millMask"
+    There is nothing in the original cgiTcl like "millMask"
+    We believe the api document means "millFile" instead of "millMask"
+
+    api2_3.py - def millFile( db, bluid )
+
+    generate file of CNC mill code that will cut Blueprint bluid
+
+    inputs:
+    db          our database object knows the logged-in user
+             user must have admin privs or own the Blueprint
+    bluid       BlueprintId should exist in the database
+
+    outputs:
+    path to G-code file which tell CNC mill how to cut the mask
+    path to .f2n file of diagnostic info about slitlets
+
+    This python function requires invoking external programs
+        dbMaskOut
+            Tcl script
+            CAVEAT: original code was not under source control
+            CAVEAT: SVN has many snapshots of different working versions
+            CAVEAT: most snapshots assume other external stuff exists
+            For the version to be used with this python and PostgreSQL
+            source code lives in SVN at
+            kroot/util/slitmask/xfer2keck/tcl/dbMaskOut.sin
+            extracts mask data from database and writes FITS file
+        fits2ncc
+            shell script
+            source code lives in SVN at
+            kroot/util/ncmill/acpncc/fits2ncc.sin
+            fits2ncc invokes external program acpncc
+        acpncc
+            C program
+            source code lives in SVN within
+            kroot/util/ncmill/acpncc/
+            converts FITS file into CNC code for mill
+     """
+
+    ############
+    # we already have a function that runs getMaskFile
+    # maskfits, aliout = get_mask_file(db, bluid)
+    mask_fits_filename, mask_ali_filename = utils.generate_mask_descript(bluid)
+    if not mask_fits_filename:
+        msg = "error creating the mask description file"
+        return create_response(success=0, err=f'{msg}', stat=401)
+
+    # debug during development display the result
+    # print("millFile(): getMaskFile mask_fits_filename %s mask_ali_filename %s" % (mask_fits_filename,mask_ali_filename))
+
+    # getMaskFile returned names of output files from dbMaskOut
+    # mask_fits_filename
+    #     Should be the multi-HDU FITS file describing mask with bluid.
+    #     DEIMOS deiccd dispatcher appends this to FITS image files.
+    #     This code proceeds to convert this to G-code for the CNC mill.
+    # mask_ali_filename
+    #     Should be the file describing alignment hole locations on the mask.
+    #     We believe something in DEIMOS and LRIS obs setup software
+    #     uses this to refine telescope pointing to align the mask on sky.
+    #     See comments in dbMaskOut for details about how DEIMOS works.
+
+    if not mask_fits_filename:
+        # empty string mask_fits_filename means some error occurred
+        # getMaskFile() is not written to return error info
+        # we reiterate this code from getMaskFile() to have access to its outputs
+        # when we last checked the Makefile for dbMaskOut creates KROOT/var/dbMaskOut/log
+        dbMOout = "@KROOT@/var/dbMaskOut/log/BluId%s.out" % bluid
+        dbMOerr = "@KROOT@/var/dbMaskOut/log/BluId%s.err" % bluid
+        log.error("%s failed: see stdout %s and stderr %s" % ('dbMaskOut', dbMOout, dbMOerr))
+        return FAILURE  # getMaskFile failed
+
+    ############
+    # convert mask FITS file into G-code
+
+    # fits2ncc is a shell script
+    # fits2ncc lives in SVN under kroot/util/ncmill/acpncc
+    # when we last checked the Makefile in acpncc has BINSUB = ncmill
+    fits2ncc = "@RELDIR@/bin/ncmill/fits2ncc"
+
+    # despite the 2023 rewrite for PostgreSQL
+    # the fits2ncc code writes to stdout (and maybe stderr?)
+    # We expect that sometimes those outputs may be useful...
+    # when we last checked the Makefile in acpncc creates KROOT/var/ncmill/log
+    f2ncout = "@KROOT@/var/ncmill/log/fits2ncc.%s.out" % bluid
+    f2ncerr = "@KROOT@/var/ncmill/log/fits2ncc.%s.err" % bluid
+    # redirect stdout and stderr into these files
+    STDOUT = open(f2ncout, 'w+')
+    STDERR = open(f2ncerr, 'w')
+
+    # debug during development display the run
+    # print("millFile(): call %s %d %s" % (fits2ncc,tooldiam,mask_fits_filename))
+
+    # we are going to use subprocess.call even if we are python3
+    status = subprocess.call([fits2ncc, "%d" % TOOL_DIAMETER, "%s" % mask_fits_filename], stdout=STDOUT, stderr=STDERR)
+    STDOUT.close()
+    STDERR.close()
+
+    # debug during development display the result
+    # print("millFile(): fits2ncc status %s" % (status,))
+
+    if status != 0:
+        log.error("%s failed: see stdout %s and stderr %s" % (fits2ncc, STDOUT, STDERR))
+
+        return FAILURE  # fits2ncc failed
+    # end if status
+
+    ############
+
+    # stdout from fits2ncc should contain paths to files acpncc wrote
+    # f2n log file
+    # f2nlogpath=<path to the f2n log file>
+    # CNC mill G-code file
+    # gcodepath=<path to the G-code file>
+
+    f2nlogpath = ''
+    gcodepath = ''
+
+    # debug during development display the result
+    # print("millFile(): STDOUT(f2ncout)=%s" % (f2ncout,))
+
+    STDOUT.seek(0)
+
+    for line in STDOUT:
+        name, var = line.partition("=")[::2]
+        if not var:
+            continue
+        elif (name == 'gcodepath'):
+            gcodepath = var.strip()
+        elif (name == 'f2nlogpath'):
+            f2nlogpath = var.strip()  # end if
+    # end for
+
+    # debug during development display the result
+    # print("millFile(): gcodepath  %s" % (gcodepath,))
+    # print("millFile(): f2nlogpath %s" % (f2nlogpath,))
+
+    if (f2nlogpath != '') and (gcodepath != ''):
+        yayornay = SUCCESS
+    else:
+        yayornay = FAILURE  # fits2ncc did not produce gcode or f2n
+    # end if
+
+    return yayornay, gcodepath, f2nlogpath
+
+    # end def millFile()            # named millMask in api section 2.3
+
     return create_response(err='NOT IMPLEMENTED', data={})
 
-# TODO figure out the db connection...  just want db
 
-
-# TODO add email
+# TODO unfinished - add send email
 @app.route("/slitmask/remill-mask")
 def remill_mask():
     """
@@ -419,13 +645,11 @@ def remill_mask():
     if not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
-    # db = db_obj.get_conn()
-    # curse = db_obj.get_dict_curse()
-
     # mark blueprint as forgotten
-    retval = utils.maskStatus(db_obj, blue_id, utils.get_slit_constants('MaskBluStatusFORGOTTEN'))
+    retval = utils.maskStatus(db_obj, blue_id, MaskBluStatusFORGOTTEN)
 
-    print("%s forgetBlueprint/maskStatus: bluid %s newstatus %s" % (retword[retval], bluid, MaskBluStatusFORGOTTEN))
+    print(f"{retval} forgetBlueprint/maskStatus: bluid {bluid} "
+          f"newstatus {MaskBluStatusFORGOTTEN}")
 
     # maskStatus did the commitOrRollback
 
@@ -456,14 +680,584 @@ def remill_mask():
 
 # Admin-only API functions
 
-@app.route("/slitmask/mask-inventory")
-def get_mask_inventory():
+
+@app.route("/slitmask/mask-inventory-admin")
+def get_admin_mask_inventory():
+    """
+    def getAdminMaskInventory( db, dict ):
+
+    :return:
+    :rtype:
+    """
+
+    """
+     get a list of mask records matching key/value pairs in dict
+
+     Use of this function is restricted to users who are
+     logged in with mask administrator privileges.
+
+     inputs:
+     db          our database object knows the logged-in user
+                 user must have MaskAdmin privs
+     dict        a dictionary of key/value pairs used to construct the query
+                 This code only looks at a few known instances of key.
+                 For one set of instances of key they are examined in list order,
+                 and only the first occurrence of a key in that list is used.
+                 For another set of instances of key their values are all used.
+                 Note that the values of these keys are going to come from web
+                 users, therefore it is imperative that when these key values are
+                 used for SQL queries they are appropriately protected such that
+                 it must not be possible to perform SQL injection.
+
+     outputs:
+     array of mask records
+
+     old web pages invoke this from idcheck button "Show Me My Mask Inventory"
+     old web pages produce this using cgiTcl code in inventory.cgi.sin
+     """
+
+    # blue_id = request.args.get('blue-id')
+    # if not blue_id:
+    #     return create_response(success=0, stat=401,
+    #                            err=f'blue-id is a required parameter')
+
+    # initialize db,  get user information,  redirect if not logged in.
+    db_obj, user_info = init_api()
+    if not user_info:
+        return redirect(LOGIN_URL)
+
+    # a list of known keys which may be found in dict
+    # The original cgiTcl web page code displayed these options to the user in order.
+    # The original cgiTcl web page code looked at this list in order.
+    # Only the first match was used to construct the SQL query.
+    firstcomelist = ['email',  # value may match e-mail of MaskDesign.DesPId or MaskBlu.BluPid
+        'guiname',  # value may be like MaskBlu.GUIname
+        'name',  # value may be like MaskBlu.BluName or MaskDesign.DesName
+        'bluid',  # value(s) may match MaskBlu.BluId (range)
+        'desid',  # value(s) may match MaskDesign.DesId (range)
+        'millseq',  # value(s) may match MaskBlu.MillSeq (range)
+        'barcode',  # value(s) may match Mask.MaskId (range) the barcode(s) on mask(s)
+        'milled',  # value may be one of (all, no, yes) default is all
+        'caldays'  # calendar days until MaskBlu.Date_Use
+    ]
+
+    # for email
+    # the slitmask FITS tables structure allows for
+    # one e-mail address in the MaskDesign table row (Mask Designer)
+    # one e-mail address in the MaskBlu table row (Mask Observer)
+    # The web ingestion software has always required that both of these
+    # e-mail addresses are known in the database of registered observers;
+    # in the Keck scheme this will be the database of known PI web logins.
+    # The web ingestion software converts the input FITS table e-mail value
+    # into the primary key ObId in the database of registered observers.
+
+    # for guiname
+    # Note that mask ingestion software MUST ensure that values
+    # of GUIname are unique among all masks which are currently
+    # submitted and not yet destroyed.
+    # We must write new ingestion code which enforces this uniqueness
+    # requirement.
+
+    # for name
+    # Note that BluName and DesName are whatever was supplied by the
+    # mask designers and there is no expectation of uniqueness.
+    # It is for this reason that this python code differentiates
+    # guiname from bluname and desname when the original cgiTcl
+    # web pages did not.
+
+    # if desid is a single value then the SQL is
+    # MaskDesign.DesId=desid
+    # if desid is two values then the SQL is
+    # MaskDesign.DesId>=desid1 and MaskDesign.DesId<=desid2
+    # This roughly works as expected because the mask ingestion
+    # process assigns the primary key DesId in increasing sequence.
+    # if desid is more than two values then the SQL is
+    # MaskDesign.DesId in (desid1,desid2,desid3...)
+
+    # for bluid
+    # the SQL is just like the above for desid
+    # with comparison to MaskBlu.BluId
+
+    # for millseq
+    # the SQL is just like the above for desid
+    # except that millseq are alphanumeric rather than integer
+    # with comparison to MaskBlu.MillSeq
+    # Note that the mask ingestion software SHOULD ensure that values
+    # of millseq are sequential so that there is very little chance
+    # of a duplicate millseq during the interval between submission
+    # and milling.
+    # Because millseq is two uppercase alpha characters that by
+    # itself gives 26*26 values.
+    # So if each new millseq value is sequential after the the
+    # previous millseq value then the chance of duplication
+    # is very small.
+
+    # for barcode
+    # the SQL is just like the above for desid
+    # with comparison to Mask.MaskId
+    # Note that barcode and MaskId means the number on the barcode
+    # sticky label that is applied after the mask is milled.
+    # Note that barcode is supposed to be unique, but that is only true
+    # if when Keck re-orders barcode labels they start the next batch
+    # with a number larger than the previous batch, and we know that
+    # Keck once failed to do that by ordering new labels which restarted
+    # from zero and ended up causing ambiguity between new masks and some
+    # of the very old, very early calibration masks with long lifetimes.
+    # So NOTE WELL, whoever is ordering more barcode labels for slitmasks
+    # should always note the high value of the previous order and ask the
+    # printer to make the next batch starting with greater values.
+    # The barcodes have six decimal digits so there can be a million
+    # masks during the lifetime of the DEIMOS and LRIS database.
+
+    # for milled
+    #   milled = all (default)
+    #       masks regardless of mill status
+    #   milled = no
+    #       only masks that have unmilled blueprints
+    #           MaskBlu.status < MaskBluStatusMILLED
+    #   milled = yes (really anything besides "all" and "no")
+    #       only masks that have milled blueprints
+    #           MaskBlu.status = MaskBluStatusMILLED
+
+    # The above options are mutually exclusive. First one wins.
+
+    # These next two options are not exclusive:
+
+    # for limit
+    # limit the ordered query to the last this many masks
+
+    # for inst
+    # Query only for instrument: DEIMOS, LRIS, both
+    # MaskDesign.INSTRUME ilike %BLANK%
+    # we use ilike in this query to handle LRIS and LRIS-ADC
+    # Note that a query by barcode=MaskId ignores this instrument limitation
+
+    # we will construct a SQL query
+    # queryarglist will become the arguments for that SQL query
+    queryarglist = []
+
+    # first we evaluate whether to limit by instrument
+    instquerychunk = ""
+    if 'inst' in dict:
+        if "DEIMOS" == dict['inst']:
+            # with DEIMOS MaskDesign.INSTRUME is always DEIMOS
+            instquerychunk = "d.INSTRUME = %s and"
+            queryarglist.append("DEIMOS")
+        elif re.search(r'^LRIS.+', dict['inst']):
+            # with LRIS MaskDesign.INSTRUME might be like LRIS-ADC
+            instquerychunk = "d.INSTRUME ilike %s and"
+            queryarglist.append("LRIS%")
+        else:
+            # we take anything else as matching any MaskDesign.INSTRUME
+            # and we do not complain about unrecognized values
+            pass  # end if
+    # end if 'inst'
+
+    # step through the exclusive keys in order
+    if 'email' in dict:
+        print("found 'email' = %s" % (dict['email'],))
+
+        # Before trying to query for matching masks
+        # we want to ascertain whether email matches a known user
+        # so that we can report a separate error about the
+        # unrecognized value of email.
+        obid = MaskUserObId(db, dict['email'])
+
+        if obid == None:
+            log.warning("e-mail %s does not exist in database of known mask users" % (dict['email'],))
+
+            return FAILURE  # MaskUserObId failed
+        # end if obid
+
+        adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                               " where " + instquerychunk + " ( d.DesPId = %s"
+                                                            " or d.DesId in"
+                                                            " (select DesId from MaskBlu where BluPId = %s)"
+                                                            " )"
+                                                            " and o.ObId = d.DesPId"
+                                                            " order by d.stamp desc;")
+        queryarglist.append(obid)  # does DesPId match ObId
+        queryarglist.append(obid)  # does BluPId match ObId
+
+    elif 'guiname' in dict and dict['guiname'] != "":
+        # match GUIname which the mask ingestion software should make unique
+        print("found 'guiname'  = %s" % (dict['guiname'],))
+        adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                               " where " + instquerychunk + " d.DesId in"
+                                                            " (select DesId from MaskBlu"
+                                                            "   where GUIname ilike %s"
+                                                            " )"
+                                                            " and o.obid = d.DesPId"
+                                                            " order by d.stamp desc;")
+        # '%guiname%' for GUIname ilike match
+        queryarglist.append("%" + dict['guiname'] + "%")
+
+    elif 'name' in dict and dict['name'] != "":
+        # match either MaskDesign.DesName or MaskBlu.BluName
+        print("found 'name'  = %s" % (dict['name'],))
+        adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                               " where " + instquerychunk + " d.DesName ilike %s"
+                                                            " or d.DesId in"
+                                                            " (select DesId from MaskBlu"
+                                                            "   where BluName ilike %s"
+                                                            " )"
+                                                            " and o.obid = d.DesPId"
+                                                            " order by d.stamp desc;")
+        # '%name%' for DesName ilike match
+        queryarglist.append("%" + dict['name'] + "%")
+        # '%name%' for BluName ilike match
+        queryarglist.append("%" + dict['name'] + "%")
+
+    elif 'bluid' in dict:
+        print("found 'bluid' = %s" % (dict['bluid'],))
+
+        # dict['bluid'] should be a list of MaskBlu.BluId values
+        numBlu = len(dict['bluid'])
+
+        if numBlu == 2:
+            # query between the given MaskBlu.BluId values
+            bilist = sorted(dict['bluid'])
+            minbi = bilist[0]
+            maxbi = bilist[-1]
+
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where " + instquerychunk + " exists"
+                                                                " (select * from MaskBlu"
+                                                                "   where DesId = d.DesId"
+                                                                "   and BluId in"
+                                                                "     (select BluId from MaskBlu"
+                                                                "     where BluId between %s and %s"
+                                                                "     )"
+                                                                " )"
+                                                                " and o.ObId = d.DesPId"
+                                                                " order by d.stamp desc;")
+            # arguments for BluId between
+            queryarglist.append(minbi)
+            queryarglist.append(maxbi)
+
+        elif numBlu > 2:
+            # query the list of given MaskBlu.BluId values
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where exists (select * from MaskBlu"
+                                   "   where DesId = d.DesId"
+                                   "   and BluId in"
+                                   "     (select BluId from Mask"
+                                   "     where BluId in"
+                                   "       (" + ",".join("%s" for i in dict['bluid']) + "       )"
+                                                                                        "     )"
+                                                                                        "   )"
+                                                                                        " and o.ObId = d.DesPId"
+                                                                                        " order by d.stamp desc;")
+            # arguments for BluId in ()
+            for bluid in dict['bluid']:
+                queryarglist.append(bluid)  # end for bluid
+
+        else:
+            # numBlu == 1
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where " + instquerychunk + " d.DesId in"
+                                                                " (select DesId from MaskBlu"
+                                                                "   where BluId = %s"
+                                                                " )"
+                                                                " and o.ObId = d.DesPId"
+                                                                " order by d.stamp desc;")
+            # argument for BluId = match
+            queryarglist.append(dict['bluid'][0])  # end if numBlu
+
+    elif 'desid' in dict:
+        print("found 'desid' = %s" % (dict['desid'],))
+
+        # dict['desid'] should be a list of MaskDesign.DesId values
+        numDes = len(dict['desid'])
+
+        # query for desid is easier than for bluid
+        if numDes == 2:
+            # query between the given MaskDesign.DesId values
+            dilist = sorted(dict['desid'])
+            mindi = dilist[0]
+            maxdi = dilist[-1]
+
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where " + instquerychunk + " d.DesId between %s and %s"
+                                                                " and o.ObId = d.DesPId"
+                                                                " order by d.stamp desc;")
+            # arguments for DesId between
+            queryarglist.append(mindi)
+            queryarglist.append(maxdi)
+        elif numDes > 2:
+            # query the list of given MaskDesign.DesId values
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where " + instquerychunk + " d.DesId in"
+                                                                " (" + ",".join("%s" for i in dict['desid']) + " )"
+                                                                                                               " and o.ObId = d.DesPId"
+                                                                                                               " order by d.stamp desc;")
+            # arguments for DesId in ()
+            for desid in dict['desid']:
+                queryarglist.append(desid)  # end for desid
+        else:
+            # numDes == 1
+            print("found 'desid' = %s" % (dict['desid'],))
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where " + instquerychunk + " d.DesId = %s"
+                                                                " and o.ObId = d.DesPId"
+                                                                " order by d.stamp desc;")
+            # argument for DesId = match
+            queryarglist.append(dict['desid'][0])  # end if numDes
+
+    elif 'millseq' in dict:
+        print("found 'millseq' = %s" % (dict['millseq'],))
+
+        # dict['desid'] should be a list of MaskDesign.DesId values
+        numSeq = len(dict['millseq'])
+
+        if numSeq == 2:
+            # query between the given MaskBlu.MillSeq/Mask.MillSeq values
+            mslist = sorted(dict['millseq'])
+            minms = mslist[0]
+            maxms = mslist[-1]
+
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where"
+                                   " ("
+                                   #   look in table MaskBlu for maybe not yet milled blueprints
+                                   "   exists"
+                                   "   ( select * from MaskBlu"
+                                   "     where DesId = d.DesId"
+                                   "     and MillSeq between %s and %s"
+                                   "   )"
+                                   "   or"
+                                   #   look in table Mask for maybe long ago milled masks
+                                   "   exists"
+                                   "   ( select * from MaskBlu"
+                                   "     where DesId = d.DesId"
+                                   "     and BluId in"
+                                   "     ( select BluId from Mask"
+                                   "       where MillSeq between %s and %s"
+                                   "     )"
+                                   "   )"
+                                   " )"
+                                   " and o.Obid = d.DesPid"
+                                   " order by d.stamp desc;")
+            # arguments for MaskBlu.MillSeq between
+            queryarglist.append(minms)
+            queryarglist.append(maxms)
+            # arguments for Mask.MillSeq between
+            queryarglist.append(minms)
+            queryarglist.append(maxms)
+
+        elif numSeq > 2:
+            # query the list of given MaskBlu.MillSeq values
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where"
+                                   " ("
+                                   #   look in table MaskBlu for maybe not yet milled blueprints
+                                   "   exists"
+                                   "   ( select * from MaskBlu"
+                                   "     where DesId = d.DesId"
+                                   "     and MillSeq in"
+                                   "     (" + ",".join("%s" for i in dict['millseq']) + "     )"
+                                                                                        "   )"
+                                                                                        "   or"
+                                   #   look in table Mask for maybe long ago milled masks
+                                                                                        "   exists"
+                                                                                        "   ( select * from MaskBlu"
+                                                                                        "     where DesId = d.DesId"
+                                                                                        "     and BluId in"
+                                                                                        "     ( select BluId from Mask"
+                                                                                        "       where MillSeq in"
+                                                                                        "       (" + ",".join(
+                "%s" for i in dict['millseq']) + "       )"
+                                                 "     )"
+                                                 "   )"
+                                                 " )"
+                                                 " and o.Obid = d.DesPid"
+                                                 " order by d.stamp desc;")
+            # arguments for MaskBlu.MillSeq in ()
+            for millseq in dict['millseq']:
+                queryarglist.append(millseq)
+            # end for millseq
+            # arguments for Mask.MillSeq in ()
+            for millseq in dict['millseq']:
+                queryarglist.append(millseq)  # end for millseq
+
+        else:
+            # numSeq == 1
+
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where"
+                                   " ("
+                                   #   look in table MaskBlu for maybe not yet milled blueprints
+                                   "   exists"
+                                   "   ( select * from MaskBlu"
+                                   "     where DesId = d.DesId"
+                                   "     and MillSeq = %s"
+                                   "   )"
+                                   "   or"
+                                   #   look in table Mask for maybe long ago milled masks
+                                   "   exists"
+                                   "   ( select * from MaskBlu"
+                                   "     where DesId = d.DesId"
+                                   "     and BluId in"
+                                   "     ( select BluId from Mask"
+                                   "       where MillSeq = %s"
+                                   "     )"
+                                   "   )"
+                                   " )"
+                                   " and o.Obid = d.DesPid"
+                                   " order by d.stamp desc;")
+            # arguments for MaskBlu.MillSeq =
+            queryarglist.append(dict['millseq'][0])
+            # arguments for Mask.MillSeq =
+            queryarglist.append(dict['millseq'][0])
+
+        # end if numSeq
+
+    elif 'barcode' in dict:
+        print("found 'barcode' = %s" % (dict['barcode'],))
+
+        # dict['barcode'] should be a list of barcode=maskId values
+        numMasks = len(dict['barcode'])
+
+        # these SQL statements ignore the instrument because
+        # the instrument is inherent for each milled mask
+        if numMasks == 2:
+            # query between the given MaskId=barcode values
+            bclist = sorted(dict['barcode'])
+            minbc = bclist[0]
+            maxbc = bclist[-1]
+
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where exists (select * from MaskBlu"
+                                   "   where DesId = d.DesId"
+                                   "   and BluId in"
+                                   "     (select BluId from Mask"
+                                   "     where MaskId between %s and %s"
+                                   "     )"
+                                   "   )"
+                                   " and o.ObId = d.DesPId"
+                                   " order by d.stamp desc;")
+            # arguments for Mask.MaskId between
+            queryarglist.append(minbc)
+            queryarglist.append(maxbc)
+
+        elif numMasks > 2:
+            # query the list of given MaskId=barcode values
+
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where exists (select * from MaskBlu"
+                                   "   where DesId = d.DesId"
+                                   "   and BluId in"
+                                   "     (select BluId from Mask"
+                                   "     where MaskId in"
+                                   "       (" + ",".join("%s" for i in dict['barcode']) + "       )"
+                                                                                          "     )"
+                                                                                          "   )"
+                                                                                          " and o.ObId = d.DesPId"
+                                                                                          " order by d.stamp desc;")
+            # arguments for Mask.MaskId in ()
+            for barcode in dict['barcode']:
+                queryarglist.append(barcode)  # end for barcode
+
+        else:
+            # numMasks == 1
+
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where exists (select * from MaskBlu"
+                                   "   where DesId = d.DesId"
+                                   "   and BluId in"
+                                   "     (select BluId from Mask"
+                                   "     where MaskId = %s"
+                                   "     )"
+                                   "   )"
+                                   " and o.ObId = d.DesPId"
+                                   " order by d.stamp desc;")
+            # arguments for Mask.MaskId =
+            queryarglist.append(dict['barcode'][0])
+
+        # end if numMasks
+
+    elif ('milled' in dict) and (dict['milled'] != "all"):
+        print("found 'milled' = %s" % (dict['milled'],))
+
+        if dict['milled'] == "no":
+
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where " + instquerychunk + " exists (select * from MaskBlu"
+                                                                " where DesId = d.DesId and status < %s"
+                                                                " and o.ObId = d.DesPId"
+                                                                " order by d.stamp desc;")
+
+        else:
+            # assume dict['milled'] = "yes"
+
+            adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                                   " where " + instquerychunk + " exists (select * from MaskBlu"
+                                                                " where DesId = d.DesId and status = %s"
+                                                                " and o.ObId = d.DesPId"
+                                                                " order by d.stamp desc;")
+
+        # end if dict['milled']
+        # argument for MaskBlu.status
+        queryarglist.append(MaskBluStatusMILLED)
+
+    elif 'caldays' in dict:
+        print("found 'caldays' = %s" % (dict['caldays'],))
+
+        adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                               " where " + instquerychunk + " date_part('day', (select max(Date_Use) from MaskBlu where DesId = d.DesId) - now())"
+                                                            " between 0 and %s"
+                                                            " and o.ObId = d.DesPId"
+                                                            " order by d.stamp desc;")
+        # argument for Date_Use diff between 0 and caldays
+        queryarglist.append(dict['caldays'])
+
+    else:
+        print("found no key in dict")
+        # this is the default admin query when nothing in dict
+
+        adminInventoryQuery = ("select * from MaskDesign d, Observers o"
+                               " where " + instquerychunk + " o.ObId = d.DesPId"
+                                                            " order by d.stamp desc;")
+
+    # end if stepping through exclusive query keys
+
+    # convert the argument list into a tuple
+    queryargtup = tuple(i for i in queryarglist)
+
+    # during development display the query
+    print(adminInventoryQuery % queryargtup)
+
+    try:
+        db.cursor.execute(adminInventoryQuery, queryargtup)
+    except Exception as e:
+        log.error(
+            "%s failed: %s: exception class %s: %s" % ('adminInventoryQuery', db.cursor.query, e.__class__.__name__, e))
+
+        log.error("failed adminInventoryQuery %s" % (adminInventoryQuery,))
+        # log.error("failed queryargtup %s" % (queryargtup,))
+        log.error("failed queryargtup %s" % queryargtup)
+
+        errcnt, message = commitOrRollback(db)
+
+        if errcnt != 0:
+            print("commitOrRollback failed: %s" % (message))
+        # end if
+
+        print("commitOrRollback worked, db should be reset")
+
+        return FAILURE  # adminInventoryQueryfailed
+    # end try
+
+    results = dumpselect(db)  # during development dump query results to stdout
+
+    # look at the cgiTcl file inventory.cgi.sin
+
+    # return SUCCESS
     return create_response(err='NOT IMPLEMENTED', data={})
 
 
 @app.route("/slitmask/recently-scanned-barcodes")
 def get_recently_scanned_barcodes():
-    # def getRecentlyScannedBarcodes( db, sortby ):
     """
     report recently scanned barcodes
     those should be the recently manufactured masks
@@ -476,13 +1270,9 @@ def get_recently_scanned_barcodes():
 
     outputs:
     list of recently scanned mask info
-
-    curl http://10.96.10.115:16815/slitmask/recently-scanned-barcodes?keck-id=1231
     """
+    # sort-by is optional
     sort_by = request.args.get('sort-by')
-    if not sort_by:
-        return create_response(success=0, stat=401,
-                               err=f'sort-by is a required parameter')
 
     # initialize db,  get user information,  redirect if not logged in.
     db_obj, user_info = init_api()
@@ -492,7 +1282,8 @@ def get_recently_scanned_barcodes():
     if not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
-    recent_date = date.today() - timedelta(days=RECENT_NDAYS)
+    recent_date = gen_utils.get_recent_day(request)
+
     if sort_by == 'barcode':
         query = 'recent_barcode'
     else:
@@ -507,7 +1298,6 @@ def get_recently_scanned_barcodes():
     results = gen_utils.get_dict_result(curse)
 
     return create_response(data=results)
-
 
 
 @app.route("/slitmask/timeline-report")
@@ -528,20 +1318,12 @@ def get_timeline_report():
     if not user_info:
         return redirect(LOGIN_URL)
 
-    try:
-        recent_days = int(request.args.get('number-days'))
-    except (ValueError, TypeError):
-        recent_days = None
-
     if not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
+    recent_date = gen_utils.get_recent_day(request)
+
     curse = db_obj.get_dict_curse()
-
-    if not recent_days or int(recent_days) <= 0:
-        recent_days = RECENT_NDAYS
-
-    recent_date = date.today() - timedelta(days=recent_days)
 
     if not do_query('timeline', curse, (recent_date,)):
         return create_response(success=0, err='Database Error!', stat=503)
@@ -551,7 +1333,7 @@ def get_timeline_report():
     return create_response(data=results)
 
 
-@app.route("/slitmask/all_valid_masks")
+@app.route("/slitmask/all-valid-masks")
 def get_all_valid_masks():
     """
     list all masks which should be in the physical inventory along with some
@@ -567,6 +1349,8 @@ def get_all_valid_masks():
     db_obj, user_info = init_api()
     if not user_info:
         return redirect(LOGIN_URL)
+
+    recent_date = gen_utils.get_recent_day(request)
 
     if not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
@@ -685,7 +1469,9 @@ def set_perpetual_mask_use_date():
 
     return create_response(data={'msg': f'{design_id} mask updated.'})
 
-
+# TODO do we need this?
+# if we do,  we need to merge the 3 queries - either the design-id and blue-id can be the OB-ID
+# https://www3build.keck.hawaii.edu/sandbox/lfuhrman/Slitmask/SlitMaskUsers.html
 @app.route("/slitmask/mask-system-users")
 def get_mask_system_users():
     # def getMaskSystemUsers( db ):
@@ -750,13 +1536,15 @@ def get_mask_detail():
     """
     select all database records related to this DesId
 
+    api2_3.py - def getDesignDetails(db, desid)
+
     inputs:
         desid       DesignId should exist in the database
 
     outputs:
         arrays of mask details
 
-    curl "http://10.96.10.115:16815/slitmask/mask-detail?keck-id=1231&design-id=419"
+    curl "http://10.96.10.115:16815/slitmask/mask-detail?design-id=419"
 
     """
 
@@ -780,22 +1568,27 @@ def get_mask_detail():
     if not utils.my_design(user_info, db, design_id):
         msg = f'Unauthorized for keck_id: {user_info.keck_id} as ' \
               f'{user_info.user_type}) to view mask with Design ID: {design_id}'
-        log.warning(msg)
         return create_response(success=0, err=msg, stat=403)
 
     if not do_query('design', curse, (design_id, )):
         return create_response(success=0, err='Database Error!', stat=503)
 
-    # first result
-    result_list = gen_utils.get_dict_result(curse)
+    # first result - mask design details
+    mask_design_results = gen_utils.get_dict_result(curse)
 
-    if len(result_list) == 0:
+    # if len(mask_design_results) == 0:
+    if not mask_design_results:
         msg = f"DesId {design_id} does not exist in table MaskDesign"
         log.warning(msg)
         return create_response(success=0, err=msg, stat=200)
 
     # there should be exactly one result row
-    design_pid = result_list[0]['despid']
+    design_pid = mask_design_results[0]['despid']
+
+    # order the results and create GUI friendly keys
+    mask_design = gen_utils.order_mask_design(mask_design_results[0])
+
+    result_list = [['Mask Design', [mask_design]]]
 
     ############################
 
@@ -811,7 +1604,7 @@ def get_mask_detail():
         log.error(msg)
         return create_response(success=0, err='Database Error!', stat=503)
 
-    result_list += results
+    result_list += [['Mask Author', results]]
     ############################
 
     # query Objects
@@ -819,7 +1612,7 @@ def get_mask_detail():
     if not do_query('objects', curse, (design_id, )):
         return create_response(success=0, err='Database Error!', stat=503)
 
-    result_list += gen_utils.get_dict_result(curse)
+    result_list += [['Slit Object Information', gen_utils.get_dict_result(curse)]]
 
     ############################
 
@@ -828,7 +1621,7 @@ def get_mask_detail():
     if not do_query('slit_obj', curse, (design_id, )):
         return create_response(success=0, err='Database Error!', stat=503)
 
-    result_list += gen_utils.get_dict_result(curse)
+    result_list += [['Slit Map', gen_utils.get_dict_result(curse)]]
 
     ############################
 
@@ -837,7 +1630,7 @@ def get_mask_detail():
     if not do_query('design_slits', curse, (design_id, )):
         return create_response(success=0, err='Database Error!', stat=503)
 
-    result_list += gen_utils.get_dict_result(curse)
+    result_list += [['Design Slits', gen_utils.get_dict_result(curse)]]
 
     ############################
 
@@ -847,12 +1640,12 @@ def get_mask_detail():
         return create_response(success=0, err='Database Error!', stat=503)
 
     results = gen_utils.get_dict_result(curse)
-    result_list += results
+    result_list += [['Blueprint', results]]
 
     for maskblurow in results:
 
-        bluid   = maskblurow['bluid']
-        blupid  = maskblurow['blupid']
+        bluid = maskblurow['bluid']
+        blupid = maskblurow['blupid']
 
         ########################
 
@@ -868,7 +1661,7 @@ def get_mask_detail():
             log.error(msg)
             return create_response(success=0, err='Database Error!', stat=503)
 
-        result_list += results
+        result_list += [['Blueprint Observers', results]]
 
         ########################
 
@@ -876,7 +1669,7 @@ def get_mask_detail():
         if not do_query('blue_slit', curse, (bluid,)):
             return create_response(success=0, err='Database Error!', stat=503)
 
-        result_list += gen_utils.get_dict_result(curse)
+        result_list += [['Blue Slits', gen_utils.get_dict_result(curse)]]
 
         ########################
 
@@ -885,105 +1678,54 @@ def get_mask_detail():
         if not do_query('blue_mask', curse, (bluid,)):
             return create_response(success=0, err='Database Error!', stat=503)
 
-        result_list += gen_utils.get_dict_result(curse)
-        print(result_list)
+        result_list += [['Blue Mask', gen_utils.get_dict_result(curse)]]
 
     return create_response(data=result_list)
 
-# TODO this one needs to run some command -- untested
-# @app.route("/slitmask/mask-file")
-@app.route("/slitmask/generate-mdf")
-def get_mask_file():
-    # def getMaskFile( db, blue_id ):
-    """
-    the name of this in the api section 2.3 is misleading
-    we should rename this to something like
-    writeFITSchunk
 
-    generate the multi-HDU FITS file
-    which can be appended onto a DEIMOS image
-    (or LRIS image, if Keck would let us turn on that code)
+# TODO this has a sub function used by another,  pull out and add response here
+# TODO this one needs to run some command -- untested
+@app.route("/slitmask/mask-description-file")
+def get_mask_description_file():
+    """
+
+    api2_3.py - getMaskFile(db, blue_id)
+
+    generate the multi-HDU FITS file which can be appended onto a DEIMOS image
+        (or LRIS image)
     HDUs in the FITS file are tables which describe a slitmask
 
-    This python function requires invoking external program
-        dbMaskOut
-            Tcl script
-            for the version to be used with this python code
-            source code lives in SVN at
-            kroot/util/slitmask/xfer2keck/tcl
-            extracts mask data from database and writes FITS file
-
-    From time immoral the UCO/Lick web server just invoked dbMaskOut
-
-    dbMaskOut is the same Tcl program used by the DEIMOS computers
-
-    After the summit crew loads masks into DEIMOS the DEIMOS computers
-    run dbMaskOut to create the multi-HDU FITS tables files.
-    When DEIMOS takes exposures it appends these FITS tables after the
-    image HDUs.  This means that the DEIMOS FITS files contain all of
-    the pixels from the CCDs and all of the information about the
-    slitmask through which the light travelled.
-
-    Note that since the 2010 detector upgrade LRIS has been running
-    exactly the same code as DEIMOS, so LRIS could also append the
-    slitmask information to its FITS images, but Keck did not allow
-    that code to be turned on.
-
-    So this has always been just a wrapper to invoke dbMaskOut.
-
-    The original dbMaskOut code was an unconsidered hack of a hack.
-    During the 2023 mask transfer project from UCO/Lick to Keck
-    inspection of this old code seemed a lot like taking a cat to the
-    vet and finding all the tissues of a trilobite inside.  Rather
-    than perpetuate all of the confusing and useless aspects of the
-    old code the new dbMaskOut code only does what is necessary.
-
-    keckid      need this to get privs
-    bluid       the BlueprintId of the slitmask
-    desid       No, we do not use this because
-                desid is redundant; we only need and only want bluid
+    blue_id       the BlueprintId of the slitmask
 
     outputs:
     fitsfile    path to the FITS tables file written by dbMaskOut
     alifile     path to the alignment box file written by dbMaskOut
     """
+    blue_id = request.args.get('blue-id')
+    if not blue_id:
+        return create_response(success=0, stat=401,
+                               err=f'blue-id is a required parameter!')
+
     # initialize db,  get user information,  redirect if not logged in.
     db_obj, user_info = init_api()
     if not user_info:
         return redirect(LOGIN_URL)
 
-    if not utils.my_blueprint(user_info, bluid):
-        msg = f"Unauthorized: BluId {blusid} does not belong to {user_info.keck_id}"
-        log.warning(msg)
+    if not utils.my_blueprint(user_info, db_obj, blue_id):
+        msg = f"Unauthorized: BluId {blue_id} does not belong to {user_info.keck_id}"
         return create_response(success=0, err=f'{msg}', stat=401)
 
-    # despite the 2023 rewrite for PostgreSQL the dbMaskOut Tcl code
-    # still retains some of its blithering to stdout and stderr
-    # and we expect that sometimes those outputs will be useful
-    dbMOout = f"/tmp/dbMaskOut.{bluid}.out"
-    dbMOerr = f"/tmp/dbMaskOut.{bluid}.err"
-    STDOUT = open(dbMOout, 'w')
-    STDERR = open(dbMOerr, 'w')
+    mask_fits_filename, mask_ali_filename = utils.generate_mask_descript(blue_id)
+    if not mask_fits_filename:
+        msg = "error creating the mask description file"
+        return create_response(success=0, err=f'{msg}', stat=401)
 
-    # the 2023 version of dbMaskOut is in ../tcl
-    # when we last checked that Makefile has BINSUB = maskpgtcl
-    dbMaskOut  = "@RELDIR@/bin/maskpgtcl/dbMaskOut"
-
-    # we are going to use subprocess.call even if we are python3
-    status = subprocess.call([dbMaskOut, f"{bluid}"], stdout=STDOUT, stderr=STDERR)
-    if status != 0:
-        log.error(f"{dbMaskOut} failed: see stdout {dbMOout} and stderr {dbMOerr}")
-
-        # return empty strings as the path of the output files
-        return "",""
-    # end if status
-
-    # we expect that dbMaskOut has created files with these names
-    dbMaskOutD = "@RELDIR@/var/dbMaskOut"
-    maskfits = "%s/Mask.%d.fits" % (dbMaskOutD, bluid)
-    aliout = "%s/Mask.%d.ali"  % (dbMaskOutD, bluid)
-
-    return maskfits, aliout
+    return create_response(
+        data={
+            'mask_fits_file': mask_fits_filename,
+            'mask_ali_filename': mask_ali_filename
+        }
+    )
 
 
 if __name__ == '__main__':

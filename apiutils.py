@@ -4,6 +4,8 @@
 
 import sys
 import datetime
+import subprocess
+from os import path
 
 from general_utils import commitOrRollback
 import logger_utils as log_fun
@@ -11,6 +13,92 @@ import logger_utils as log_fun
 from general_utils import do_query
 from mask_constants import MASK_ADMIN
 
+
+################################################
+def generate_mask_descript(bluid):
+    """
+    generate the multi-HDU FITS file which can be appended onto a DEIMOS image
+        (or LRIS image)
+    HDUs in the FITS file are tables which describe a slitmask
+
+    This python function requires invoking external program
+        dbMaskOut
+            Tcl script
+            for the version to be used with this python code
+            source code lives in SVN at:
+                kroot/util/slitmask/xfer2keck/tcl
+            extracts mask data from database and writes FITS file
+
+    From time immoral the UCO/Lick web server just invoked dbMaskOut
+
+    dbMaskOut is the same Tcl program used by the DEIMOS computers
+
+    After the summit crew loads masks into DEIMOS the DEIMOS computers
+    run dbMaskOut to create the multi-HDU FITS tables files.
+    When DEIMOS takes exposures it appends these FITS tables after the
+    image HDUs.  This means that the DEIMOS FITS files contain all of
+    the pixels from the CCDs and all of the information about the
+    slitmask through which the light travelled.
+
+    Note that since the 2010 detector upgrade LRIS has been running
+    exactly the same code as DEIMOS, so LRIS could also append the
+    slitmask information to its FITS images, but Keck did not allow
+    that code to be turned on.
+
+    So this has always been just a wrapper to invoke dbMaskOut.
+
+    The original dbMaskOut code was an unconsidered hack of a hack.
+    During the 2023 mask transfer project from UCO/Lick to Keck
+    inspection of this old code seemed a lot like taking a cat to the
+    vet and finding all the tissues of a trilobite inside.  Rather
+    than perpetuate all of the confusing and useless aspects of the
+    old code the new dbMaskOut code only does what is necessary.
+
+    :return:
+
+        mask_fits_filename
+
+            Should be the multi-HDU FITS file describing mask with bluid.
+            DEIMOS deiccd dispatcher appends this to FITS image files.
+            This code proceeds to convert this to G-code for the CNC mill.
+
+        mask_ali_filename
+            Should be the file describing alignment hole locations on the mask.
+            We believe something in DEIMOS and LRIS obs setup software
+            uses this to refine telescope pointing to align the mask on sky.
+            See comments in dbMaskOut for details about how DEIMOS works.
+            ** this means that the Slit-Alignment Tool (SAT) uses this file.
+
+    :rtype: <str>
+    """
+    # despite the 2023 rewrite for PostgreSQL the dbMaskOut Tcl code
+    # still retains some of its blithering to stdout and stderr
+    # and we expect that sometimes those outputs will be useful
+    db_mask_out = f"/tmp/dbMaskOut.{bluid}.out"
+    db_mask_err = f"/tmp/dbMaskOut.{bluid}.err"
+    stdout_file = open(db_mask_out, 'w')
+    stderr_file = open(db_mask_err, 'w')
+
+    # TODO update the path
+    # the 2023 version of dbMaskOut is in ../tcl
+    # when we last checked that Makefile has BINSUB = maskpgtcl
+    # dbMaskOut = "@RELDIR@/bin/maskpgtcl/dbMaskOut"
+    abs_path = path.abspath(path.dirname(__file__))
+    dbMaskOut = f"{abs_path}/dbMaskOut/dbMaskOut"
+
+    # we are going to use subprocess.call even if we are python3
+    status = subprocess.call([dbMaskOut, f"{bluid}"], stdout=stdout_file,
+                             stderr=stderr_file)
+    if status != 0:
+        log.error(f"{dbMaskOut} failed: see stdout {db_mask_out} and stderr {db_mask_err}")
+        return None, None
+
+    # we expect that dbMaskOut has created files with these names
+    dbMaskOutD = "@RELDIR@/var/dbMaskOut"
+    maskfits = f"{dbMaskOutD}/Mask.{bluid}.fits"
+    aliout = f"{dbMaskOutD}/Mask.{bluid}.ali"
+
+    return maskfits, aliout
 
 ################################################
 
@@ -136,7 +224,7 @@ def my_blueprint(user_info, db, bluid):
 
     curse = db.cursor()
     params = (bluid, user_info.ob_id, bluid, user_info.ob_id)
-    if not do_query('blue_person', curse, params):
+    if not do_query('my_blueprint', curse, params):
         return False
 
     results = curse.fetchall()
@@ -190,179 +278,85 @@ def my_blueprint(user_info, db, bluid):
 #
 # # end def isThisMyMask()
 
-################################################
 
+def MaskUserObId(
+db,             # connection to PgSQL database with Keck slitmask info
+useremail,      # e-mail address to seek
+):
+    """
+    If we do know the e-mail address of a mask user and we need to
+    know the database primary key of that user.
 
-# TODO no need,  kept as filler
-# def dumpselect(db):
-#     """
-#     for introspection during development
-#     """
-#     log = log_fun.get_log()
-#     # inputs:
-#     # db        database object which has successfully executed a select
-#
-#     # outputs:
-#     # print results of select to stdout
-#
-#     # mask tables are not huge
-#     # we can dare to fetchall
-#     # that should not exhaust resources
-#     results = db.cursor().fetchall()
-#
-#     # arrays to store the characteristics of columns in the database
-#     colmyt = []
-#     colname = []
-#     coltype = []
-#
-#     # painstakingly looking at type that odbc gives to psycopg2
-#     # these values have not been found in the psycopg2 docs
-#     # they may not be the same on all platforms
-#     # on the doc page at
-#     # https://www.psycopg.org/docs/module.html
-#     # it talks about hints, but there are no hints
-#     # it talks about type codes in cursor object description
-#     # but there is not a list of those on that doc page
-#     pg2DateTime = 1114
-#     pg2Int = 23
-#     pg2Char = 1042
-#     pg2String = 25
-#     pg2Float = 700
-#     pg2Double = 701
-#     pg2WhatIsIt = -1
-#
-#     # a successful query should have retrieved the result characteristics
-#     if not db.cursor.description:
-#         # None should not happen if the table exists
-#         log.error("The query failed -- the result has no description")
-#
-#         # cannot proceed to dump without a description
-#         return None
-#     # end if db.cursor.description
-#
-#     # loop over every column in the query result
-#     numcols = 0
-#     for column in db.cursor.description:
-#         # https://github.com/mkleehammer/pyodbc/wiki/Cursor#attributes
-#         # column[0] is column name or alias
-#         colname.append(column[0])
-#         # column[1] is type code
-#         coltype.append(column[1])
-#         # column[3] is internal size
-#
-#         if column[1] == pg2String:
-#             colmyt.append(pg2String)
-#         elif column[1] == pg2Char:
-#             colmyt.append(pg2Char)
-#         elif column[1] == pg2Int:
-#             colmyt.append(pg2Int)
-#         elif column[1] == pg2Float:
-#             colmyt.append(pg2Float)
-#         elif column[1] == pg2Double:
-#             colmyt.append(pg2Double)
-#         elif column[1] == pg2DateTime:
-#             colmyt.append(pg2DateTime)
-#         else:
-#             # no idea what other data types might be in PostgreSQL
-#             colmyt.append(pg2WhatIsIt)
-#         # end if isinstance
-#
-#         log.info(f"colname {column[0]} type {column[1]} size {column[3]} "
-#                  f"{colmyt[numcols]}")
-#
-#         # counting columns was necessary when not using dictionary cursor
-#         numcols += 1
-#     # end for column
-#
-#     # we dump to stdout
-#     f = sys.stdout
-#
-#     colnum = 0
-#     for column in db.cursor.description:
-#         f.write("%s" % (colname[colnum]))
-#
-#         colnum+=1
-#
-#         if colnum < numcols:
-#             f.write(", ")
-#         # end if colnum
-#     # end for column
-#     f.write("\n")
-#
-#     len_results  = len(results)
-#
-#     print(f"len_results {len_results}")
-#
-#     if len_results < 1:
-#         return None
-#     # end if
-#
-#     rownum = 0
-#     for row in results:
-#         colnum = 0
-#         for col in row:
-#             orig = row[colname[colnum]]
-#             if orig == None:
-#                 f.write("\\N")
-#             elif colmyt[colnum] == pg2String:
-#                 f.write("%s" % orig)
-#             elif colmyt[colnum] == pg2Char:
-#                 f.write("%s" % orig)
-#             elif colmyt[colnum] == pg2Int:
-#                 f.write("%d" % orig)
-#             elif colmyt[colnum] == pg2Float:
-#                 f.write("%f" % orig)
-#             elif colmyt[colnum] == pg2Double:
-#                 f.write("%f" % orig)
-#             elif colmyt[colnum] == pg2DateTime:
-#                 f.write("%s" % orig)
-#             else:
-#                 f.write("%s" % orig)
-#             # end if orig
-#
-#             colnum+=1
-#
-#             if colnum < numcols:
-#                 f.write('\t')
-#             # end if colnum
-#
-#         # end for col
-#
-#         rownum+=1
-#         f.write('\n')
-#
-#     # end for row
-#
-#     # unclear if returning this will eventually cause
-#     # problems because we never free the memory
-#     # but using this routine may be not good for long-running process
-#     return results
+    The mask description FITS tables (MDF) files are created at sites
+    which do not have access to the database of registered mask users.
+    Therefore the MDF files transport user identity as strings which
+    should be valid e-mail addresses in the FITS table columns
+    MaskDesign.DesAuth and MaskBlu.BluObsvr
 
-# end def dumpselect()
+    Furthermore, the software which ingests MDF files requires that
+    the values of MaskDesign.DesAuth and MaskBlu.BluObsvr be registered
+    as known users in the slitmask database.
 
-################################################
+    Keck will have to rewrite the mask ingestion code so that it
+    checks the e-mail addresses in MDF files against the Keck PI login
+    database.
 
-# TODO moved to the mask_constants.py
-# def get_slit_constants(key_name):
-#     """
-#     MaskBluStatusMILLABLE = 0     # newly submitted or set for reMill
-#     MaskBluStatusFLOPPY = 1     # millcode written for the mill
-#     MaskBluStatusMILLED = 2     # milled and scanned as physical inventory
-#     MaskBluStatusSHIPPED = 3     # moot after milling moved from UCSC to Keck
-#     MaskBluStatusFORGOTTEN = 9     # marked to be deleted from database
-#
-#     :param key_name:
-#     :type key_name:
-#     :return:
-#     :rtype:
-#     """
-#     slit_consts = {
-#         'MaskBluStatusMILLABLE': 0,
-#         'MaskBluStatusFLOPPY': 1,
-#         'MaskBluStatusMILLED': 2,
-#         'MaskBluStatusSHIPPED': 3,
-#         'MaskBluStatusFORGOTTEN': 9
-#     }
-#
-#     return slit_consts[key_name]
+    Keck will have to rewrite this query so that it looks for the
+    e-mail address in the Keck PI login database.
 
+    inputs:
+        db              database object
+                        already connected to PgSQL with suitable privs
+                        db.maskumail knows the logged-in slitmask user
+        useremail       an e-mail address which may be a registered mask user
+                        Note that this function exists in order to look up
+                        a mask user other than the logged-in user.
+
+    outputs:
+        obid = the ObserverId
+        or
+        None
+        For the original Sybase implementation and the PostgreSQL
+        scheme used during the 2023/2024 mask transfer project obid
+        means the primary key of the registered user corresponding to
+        useremail as found in table Observers.
+        Keck will have to rewrite this to return the primary key from
+        the table of people in the Keck PI login database.
+    """
+
+    userQuery   = ( "select ObId from Observers where email ilike %s" )
+
+    try:
+        db.cursor.execute(userQuery, (useremail,) )
+    except Exception as e:
+        tclog.logger.error(
+        "%s failed: %s: exception class %s: %s"
+        % ('userQuery', db.cursor.query, e.__class__.__name__, e) )
+        return None
+    # end try
+
+    results     = db.cursor.fetchall()
+
+    lenres      = len(results)
+
+    if lenres < 1:
+        # lenres < 1 means there is no Observer with email useremail
+        msg     = ( "%s is not a registered mask user" % (useremail))
+        tclog.logger.warning( msg )
+        # need to print/return other information
+        print(msg)
+        return None
+    elif lenres > 1:
+        # lenres > 1, this should be impossible according to our rules
+        # because in table Observers field e-mail must be unique.
+        msg     = ("db error: %s > 1 mask users with email %s" % (useremail))
+        tclog.logger.error( msg )
+        # need to print/return other information
+        print(msg)
+        return None
+    # end if
+
+    # lenres == 1, row is in results[0]
+    return results[0]['obid']
+
+# end def MaskUserObId()

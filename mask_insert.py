@@ -1,10 +1,11 @@
-
+from datetime import datetime
 
 class MaskInsert:
-    def __init__(self, db, maps, log, err_report):
+    def __init__(self, keck_id, db, maps, log, err_report):
+        self.keck_id = keck_id
         self.db = db
         self.maps = maps
-        self.log = self.log
+        self.log = log
         self.err_report = err_report
 
     def get_err_report(self):
@@ -19,14 +20,15 @@ class MaskInsert:
         self.err_report.append(msg)
 
     def mask_design(self, row, query):
-
+        time_stamp = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+        print(self.keck_id, time_stamp)
         try:
             self.db.cursor.execute(
                 query,
                 (
                     # DesId
                     row['DesName'],
-                    int(maps.obid[row['DesAuth']]),  # DesPId becomes ObId matching DesAuth
+                    int(self.maps.obid[row['DesAuth']]),  # DesPId becomes ObId matching DesAuth
                     row['DesCreat'], row['DesDate'],  # FITS date is ISO8601 and pgsql groks that
                     int(row['DesNslit']),
                     int(row['DesNobj']),
@@ -38,19 +40,21 @@ class MaskInsert:
                     row['RADEPNT'],
                     float(row['EQUINPNT']),
                     float(row['PA_PNT']),
-                    row['DATE_PNT'],
-                    # FITS date is ISO8601 and pgsql groks that
-                    float(row['LST_PNT']), # maskdesign.stamp gets default now()
-                    db.maskumail,
+                    row['DATE_PNT'], # FITS date is ISO8601 and pgsql groks that
+
+                    float(row['LST_PNT']),  # maskdesign.stamp gets default now()
+                    self.keck_id,
+                    time_stamp
+                    # float(row['LST_PNT']), # maskdesign.stamp gets default now()
                 )
             )
         except Exception as e:
-            self.log_exception(self, "Mask Design Insert", e)
+            self.log_exception("Mask Design Insert", e)
         else:
             result = self.db.cursor.fetchone()
             self.maps.desid[row['DesId']] = result['desid']
 
-    def mask_blue(self, row, query):
+    def mask_blue(self, row, query, guiname):
         try:
             self.db.cursor.execute(
                 query,
@@ -62,14 +66,14 @@ class MaskInsert:
                     row['BluCreat'],
                     row['BluDate'],                   # FITS date is ISO8601 and pgsql groks that
                     float(row['LST_Use']),
-                    row['DATE_Use'],                  # FITS date is ISO8601 and pgsql groks that
+                    row['DATE_USE'],                  # FITS date is ISO8601 and pgsql groks that
                     int(self.maps.teleid[row['TELESCOP']]),
                     float(row['AtmTempC']),
                     float(row['AtmPres']),
                     float(row['AtmHumid']),
                     float(row['AtmTTLap']),
                     float(row['RefWave']),
-                    row['guiname'],                   # WE MUST HACK GUINAME FOR UNIQUENESS
+                    guiname,
                     # millseq is NULL at ingest
                     # status is NULL at ingest
                     # loc is NULL at ingest
@@ -79,18 +83,18 @@ class MaskInsert:
                 )
             )
         except Exception as e:
-            self.log_exception(self, "Mask Blue Insert", e)
+            self.log_exception("Mask Blue Insert", e)
         else:
             result = self.db.cursor.fetchone()
             self.maps.bluid[row['BluId']] = result['bluid']
 
     def design_slit(self, row, query):
         try:
-            db.cursor.execute(
+            self.db.cursor.execute(
                 query,
                 (
                     # dSlitId gets default for new primary key
-                    int(maps.desid[row['DesId']]),
+                    int(self.maps.desid[row['DesId']]),
                     float(row['slitRA']),             # truly double
                     float(row['slitDec']),            # truly double
                     row['slitTyp'],
@@ -102,18 +106,18 @@ class MaskInsert:
                 )
             )
         except Exception as e:
-            self.log_exception(self, "Slit Design Insert", e)
+            self.log_exception("Slit Design Insert", e)
         else:
             result = self.db.cursor.fetchone()
-            maps.dslitid[row['dSlitId']] = result['dslitid']
+            self.maps.dslitid[row['dSlitId']] = result['dslitid']
 
     def blue_slit(self, row, query):
         try:
-            db.cursor.execute(
+            self.db.cursor.execute(
                 query,
                 (
-                    int(maps.bluid[row['BluId']]),
-                    int(maps.dslitid[row['dSlitId']]),
+                    int(self.maps.bluid[row['BluId']]),
+                    int(self.maps.dslitid[row['dSlitId']]),
                     float(row['slitX1']),
                     float(row['slitY1']),
                     float(row['slitX2']),
@@ -125,14 +129,14 @@ class MaskInsert:
                 )
             )
         except Exception as e:
-            self.log_exception(self, "Blue Slit Insert", e)
+            self.log_exception("Blue Slit Insert", e)
         else:
             result = self.db.cursor.fetchone()
-            maps.bslitid[row['bSlitId']] = result['bslitid']
+            self.maps.bslitid[row['bSlitId']] = result['bslitid']
 
     def target(self, row, query):
         try:
-            db.cursor.execute(
+            self.db.cursor.execute(
                 query, (
                   # ObjectId gets default for new primary key
                   row['OBJECT'],
@@ -149,17 +153,17 @@ class MaskInsert:
                 )
             )
         except Exception as e:
-            self.log_exception(self, "Target Insert ", e)
+            self.log_exception("Target Insert ", e)
             result = None
         else:
             result = self.db.cursor.fetchone()
-            maps.objectid[row['ObjectId']] = result['objectid']
+            self.maps.objectid[row['ObjectId']] = result['objectid']
 
         return result
 
     def extended_target(self, row, query, result):
         try:
-            db.cursor.execute(
+            self.db.cursor.execute(
                 query, (
                   result['objectid'],
                   float(row['MajAxPA']),
@@ -167,11 +171,11 @@ class MaskInsert:
                 )
             )
         except Exception as e:
-            self.log_exception(self, "Extended Object Insert ", e)
+            self.log_exception("Extended Object Insert ", e)
 
     def nearby_target(self, row, query, result):
         try:
-            db.cursor.execute(
+            self.db.cursor.execute(
                 query, (
                   result['objectid'],
                   float(row['PM_RA']),
@@ -180,20 +184,20 @@ class MaskInsert:
                 )
             )
         except Exception as e:
-            self.log_exception(self, "Nearby Target Insert ", e)
+            self.log_exception("Nearby Target Insert ", e)
 
     def slit_target(self, row, query):
         try:
-            db.cursor.execute(
+            self.db.cursor.execute(
                 query, (
-                  int(maps.desid[row['DesId']]),
-                  int(maps.objectid[row['ObjectId']]),
-                  int(maps.dslitid[row['dSlitId']]),
+                  int(self.maps.desid[row['DesId']]),
+                  int(self.maps.objectid[row['ObjectId']]),
+                  int(self.maps.dslitid[row['dSlitId']]),
                   float(row['TopDist']),
                   float(row['BotDist']),
                 )
             )
         except Exception as e:
-            self.log_exception(self, "Slit Target Insert ", e)
+            self.log_exception("Slit Target Insert ", e)
 
 
