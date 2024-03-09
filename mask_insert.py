@@ -1,12 +1,21 @@
 from datetime import datetime
+import string
+
+ONLYONE = 0
+
 
 class MaskInsert:
-    def __init__(self, keck_id, db, maps, log, err_report):
-        self.keck_id = keck_id
+    # def __init__(self, keck_id, design_id, guiname, db, maps, log, err_report):
+    def __init__(self, user_info, hdul, db, maps, log, err_report):
+        self.keck_id = user_info.keck_id
+        self.user_email = user_info.email
+        self.hdul = hdul
+        self.design_id = hdul['MaskDesign'].data['DesId'][ONLYONE]
         self.db = db
         self.maps = maps
         self.log = log
         self.err_report = err_report
+        self.guiname = self.unique_gui_name()
 
     def get_err_report(self):
         return self.err_report
@@ -20,68 +29,61 @@ class MaskInsert:
         self.err_report.append(msg)
 
     def mask_design(self, row, query):
-        time_stamp = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
-        print(self.keck_id, time_stamp)
+        params = (
+            # design_id (default)
+            row['DesName'],
+            int(self.maps.obid[row['DesAuth']]),  # DesPId becomes ObId matching DesAuth
+            row['DesCreat'],
+            row['DesDate'],  # FITS date is ISO8601 and pgsql groks that
+            int(row['DesNslit']),
+            int(row['DesNobj']),
+            row['ProjName'],
+            row['INSTRUME'],
+            row['MaskType'],
+            float(row['RA_PNT']),  # truly double
+            float(row['DEC_PNT']),  # truly double
+            row['RADEPNT'],
+            float(row['EQUINPNT']),
+            float(row['PA_PNT']),
+            row['DATE_PNT'], # FITS date is ISO8601 and pgsql groks that
+            float(row['LST_PNT']),
+            # time_stamp (default)
+            self.user_email
+        )
         try:
-            self.db.cursor.execute(
-                query,
-                (
-                    # DesId
-                    row['DesName'],
-                    int(self.maps.obid[row['DesAuth']]),  # DesPId becomes ObId matching DesAuth
-                    row['DesCreat'], row['DesDate'],  # FITS date is ISO8601 and pgsql groks that
-                    int(row['DesNslit']),
-                    int(row['DesNobj']),
-                    row['ProjName'],
-                    row['INSTRUME'],
-                    row['MaskType'],
-                    float(row['RA_PNT']),  # truly double
-                    float(row['DEC_PNT']),  # truly double
-                    row['RADEPNT'],
-                    float(row['EQUINPNT']),
-                    float(row['PA_PNT']),
-                    row['DATE_PNT'], # FITS date is ISO8601 and pgsql groks that
-
-                    float(row['LST_PNT']),  # maskdesign.stamp gets default now()
-                    self.keck_id,
-                    time_stamp
-                    # float(row['LST_PNT']), # maskdesign.stamp gets default now()
-                )
-            )
+            self.db.cursor.execute(query, params)
         except Exception as e:
             self.log_exception("Mask Design Insert", e)
         else:
             result = self.db.cursor.fetchone()
             self.maps.desid[row['DesId']] = result['desid']
 
-    def mask_blue(self, row, query, guiname):
+    def mask_blue(self, row, query):
+        params = (
+            # BluId gets default for new primary key
+            self.maps.desid[row['DesId']],  # this is set by mask_design()
+            row['BluName'],
+            int(self.maps.obid[row['BluObsvr']]),  # BluPId becomes ObId matching BluObsvr
+            row['BluCreat'],
+            row['BluDate'],  # FITS date is ISO8601 and pgsql groks that
+            float(row['LST_Use']),
+            row['DATE_USE'],  # FITS date is ISO8601 and pgsql groks that
+            int(self.maps.teleid[row['TELESCOP']]),
+            float(row['AtmTempC']),
+            float(row['AtmPres']),
+            float(row['AtmHumid']),
+            float(row['AtmTTLap']),
+            float(row['RefWave']),
+            self.guiname,
+            # millseq is NULL at ingest
+            # status is NULL at ingest
+            # loc is NULL at ingest
+            # maskblu.stamp gets default now()
+            row['RefrAlg'],
+            row['DistMeth'],
+        )
         try:
-            self.db.cursor.execute(
-                query,
-                (
-                    # BluId gets default for new primary key
-                    int(self.maps.desid[row['DesId']]),
-                    row['BluName'],
-                    int(self.maps.obid[row['BluObsvr']]),  # BluPId becomes ObId matching BluObsvr
-                    row['BluCreat'],
-                    row['BluDate'],                   # FITS date is ISO8601 and pgsql groks that
-                    float(row['LST_Use']),
-                    row['DATE_USE'],                  # FITS date is ISO8601 and pgsql groks that
-                    int(self.maps.teleid[row['TELESCOP']]),
-                    float(row['AtmTempC']),
-                    float(row['AtmPres']),
-                    float(row['AtmHumid']),
-                    float(row['AtmTTLap']),
-                    float(row['RefWave']),
-                    guiname,
-                    # millseq is NULL at ingest
-                    # status is NULL at ingest
-                    # loc is NULL at ingest
-                    # maskblu.stamp gets default now()
-                    row['RefrAlg'],
-                    row['DistMeth'],
-                )
-            )
+            self.db.cursor.execute(query, params)
         except Exception as e:
             self.log_exception("Mask Blue Insert", e)
         else:
@@ -199,5 +201,158 @@ class MaskInsert:
             )
         except Exception as e:
             self.log_exception("Slit Target Insert ", e)
+
+    def unique_gui_name(self):
+        """
+        outputs:
+            unique_gui_name
+                a possibly modified variant of GUIname which is at the
+                moment not a duplicate of any existing GUIname in database
+        """
+        # There are special rules for GUIname
+        # because of constraints on how and where that is used.
+
+        # MaskBlu.GUIname comes from the DEIMOS MDF file.
+        # The mask designer gets to suggest a value.
+        # That value may be modified during or after mask ingestion.
+
+        # The original cgiTcl code ingested MaskBlu.GUIname exactly as
+        # found in the DEIMOS MDF files submitted to the cgiTcl web code.
+        # The post-delivery rewrite that added LRIS into the Sybase
+        # scheme used Tcl program lsc2df which generated a GUIname
+        # using the original name of the Autoslit .file3 file that
+        # was submitted through the cgiTcl web code.
+        # In that old SybTcl world the values of GUIname were reviewed
+        # after ingestion by a daily cron job MaskKeeper.
+
+        # In this new python code from the 2023/2024 transfer project
+        # we endeavour to modify GUIname during ingestion so that there
+        # should never be duplicate values in the PostgreSQL database.
+        # Nevertheless it remains the case that the PostgreSQL database
+        # should still be subjected to at least occasional reviews by
+        # code other than the web submission interface because there
+        # will likely be cases of mask data which are not adequately
+        # handled at the time of mask ingestion.
+
+        # When the mill operator using slitmaskpc runs the MillMasks GUI
+        # and scans the mask as milled then the MillMasks GUI will copy
+        # MaskBlu.GUIname into Mask.GUIname
+        # This duplication of data was done consciously for convenience.
+        # It means that a physical mask could have a blueprint where the
+        # GUIname values differ in those two table.
+        # It also means that in various different sections of code that
+        # interact with the slitmask database some code may use
+        # MaskBlu.GUIname while other code may use Mask.GUIname
+        # So the code can be confusing, especially in the case of the
+        # Tcl code where global variables come into existence simply by
+        # performing SQL queries.
+
+        # Note that the SQL table definition for Mask.GUIname has
+        # allowed for 12 characters, but mask ingestion web code and
+        # and mask maintenance cron jobs (e.g., MaskKeeper) have
+        # restricted the name to 8 characters.
+        # The restriction in length of GUIname is important for
+        # 1) the MillMasks program which runs on slitmaskpc during mask milling
+        # 2) the physical masks themselves into which the GUIname will be milled
+        # 3) the DEIMOS setup/observing GUIs which display the GUIname
+
+        # On DEIMOS masks the text milled onto the mask is in the
+        # unilluminated corner of the mask, and for DEIMOS masks the
+        # GUIname could be much longer than 8 characters with no problems.
+
+        # On LRIS masks there is no unilluminated region and all of the
+        # text milled onto an LRIS mask risks colliding with slitlets
+        # because LRIS and its mask design program Autoslit predate the
+        # DEIMOS slitmask database processing scheme so they are ignorant
+        # of the practical issues of humans handling piles of slitmasks
+        # which are effectively indistinguishable.
+        # For LRIS masks the GUIname dare not be longer than 8 characters.
+
+        # we require that MaskBlu.GUIname not have whitespace
+        GUIname = self.hdul['MaskBlu'].data['guiname'][0]
+        okGUIname = GUIname.strip()
+        okGUIwords = okGUIname.split()
+        lenokGUI = len(okGUIwords)
+        if lenokGUI == 0:
+            msg = ("MaskBlu.GUIname is empty")
+            self.log.warning(msg)
+            print(msg)
+            anom += 1
+        elif lenokGUI > 1:
+            msg = ("MaskBlu.GUIname '%s' has embedded whitespace" % (GUIname,))
+            self.log.warning(msg)
+            print(msg)
+            # collapse whitespace
+            newGUIname = ''.join(okGUIwords)
+        else:
+            # msg = ("MaskBlu.GUIname '%s' had no whitespace" % (GUIname,))
+            # self.log.info( msg )
+            # print(msg)
+            newGUIname = GUIname
+        # end if
+
+        # we require that  MaskBlu.GUIname be just printable ASCII
+        # because KTL and the mill code generator only know that
+        # For DEIMOS masks that is easy because FITS only knows ASCII.
+        # For LRIS masks we need to make sure that lsc2df throws away
+        # utf8 that is not ASCII when it uses the input file name.
+
+        # we require that MaskBlu.GUIname be unique in the database
+        # originally performed by Tcl Tlib proc notifyDupNames
+        # strategy here is different than that code
+        # in order to economize on SQL calls
+        # replace final character of new GUIname with %
+        # select all existing GUIname like that
+        # Hope that not all possible final characters have
+        # already been used, and use one of those unused.
+        gnSelect = ("select GUIname from MaskBlu"
+                    " where GUIname like %s;")
+
+        print("newGUIname %s" % (newGUIname,))
+        shortGUIname = newGUIname[:7]
+        shortGUIlike = newGUIname[:7] + "%"
+
+        try:
+            self.db.cursor.execute(gnSelect, (shortGUIlike,))
+        except Exception as e:
+            msg = ("gnSelect failed: %s: exception class %s: %s" % (db.cursor.query, e.__class__.__name__, e))
+            self.log.error(msg)
+            print(msg)
+            errcnt += 1
+        # end try gnSelect
+
+        # fetch one at a time and match using listyness
+        guinamelist = []
+        print("guinamelist created")
+        for resrow in self.db.cursor:
+            rowguiname = resrow['guiname'].strip()
+            if rowguiname not in guinamelist:
+                guinamelist.append(rowguiname)
+            else:
+                print("GUIname '%s' has dups in db" % (rowguiname,))  # end if rowguiname
+        # end for resrow
+        for lastchar in string.ascii_letters + string.digits + "_:":
+            tryGUIname = shortGUIname + lastchar
+            if tryGUIname not in guinamelist:
+                print("tryGUIname '%s' was not in guinamelist %s" % (tryGUIname, guinamelist))
+                newGUIname = tryGUIname
+                break  # end if tryGUIname
+        # end for lastchar
+
+        # Note that we have a race here.
+        # If another connection to the database inserts the newGUIname
+        # that we have selected then there will still be duplicates.
+        # We are not going to try to lock the database here so we probably
+        # still need something like MaskKeeper to review the database for
+        # duplicate GUIname and any other problems that might arise.
+
+        if (newGUIname != GUIname):
+            msg = (f"we change MaskBlu.GUIname to {newGUIname}")
+            self.log.warning(msg)
+            print(msg)
+            GUIname = newGUIname
+        # end if we changed GUIname
+
+        return GUIname
 
 

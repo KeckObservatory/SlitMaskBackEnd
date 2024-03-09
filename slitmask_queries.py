@@ -4,13 +4,9 @@ from mask_constants import MaskBluStatusMILLED, MaskBluStatusFORGOTTEN, PERPETUA
 
 ownership_queries = {
     "blue_person": """
-        SELECT BluPId AS MaskId
-        FROM MaskBlu
-        WHERE DesId = %s and DesPId = %s
-        UNION
         SELECT DesId AS MaskId
         FROM MaskBlu
-        WHERE DesId = %s and BluPId = %s;
+        WHERE BluId = %s and BluPId = %s;
         """,
     "design_person": """
         SELECT DesPId AS MaskId
@@ -142,7 +138,7 @@ admin_queries = {
 
     "mask_valid": """
         select m.MaskId, m.GUIname, m.MillSeq, b.Date_Use, o.FirstNm, 
-               o.LastNm, b.status, d.INSTRUME
+               o.LastNm, b.status, d.INSTRUME, o.keckid
         from Mask m, MaskBlu b, Observers o, MaskDesign d
         where b.BluId = m.BluId
         and d.DesId = b.DesId
@@ -253,8 +249,8 @@ ingest_queries = {
         PA_PNT,
         DATE_PNT,
         LST_PNT,
-        uid,
-        stamp
+        stamp,
+        maskumail
     ) VALUES (
         DEFAULT, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
         DEFAULT, %s) 

@@ -17,8 +17,6 @@ class WsPgConn(PgConn):
     def __init__(self, keck_id):
         super(WsPgConn, self).__init__()
         self.user_type = self.set_user_type(keck_id)
-        # self.privs = self.set_privs()
-        # self.email = user_email
 
     def db_connect(self):
         db_pw = wspgcfg.pwdict[USER_TYPE_STR[self.user_type]]
@@ -28,12 +26,6 @@ class WsPgConn(PgConn):
         self.connect(host, port, dbname, self.user_type, db_pw)
 
         return True
-
-    # def get_user_email(self):
-    #     return self.email
-
-    # def get_user_level(self):
-    #     return self.privs
 
     def get_user_type(self):
         return self.user_type
@@ -88,10 +80,3 @@ class WsPgConn(PgConn):
             self.log.info(f"user=maskuser for keck_id {keck_id}")
             return MASK_USER
 
-    # def set_privs(self):
-    #     if self.user_type == MASK_ADMIN:
-    #         return 'admin'
-    #     elif self.user_type == MASK_USER:
-    #         return 'user'
-    #
-    #     return 'login'

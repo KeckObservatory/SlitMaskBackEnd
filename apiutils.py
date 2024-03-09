@@ -217,14 +217,14 @@ def my_design(user_info, db, desid):
 ################################################
 
 
-def my_blueprint(user_info, db, bluid):
+def my_blueprint(user_info, curse, blue_id):
 
     if user_info.user_type == MASK_ADMIN:
         return True
 
-    curse = db.cursor()
-    params = (bluid, user_info.ob_id, bluid, user_info.ob_id)
-    if not do_query('my_blueprint', curse, params):
+    curse = db_obj.get_dict_curse()
+    params = (blue_id, user_info.ob_id)
+    if not do_query('blue_person', curse, params):
         return False
 
     results = curse.fetchall()
@@ -279,10 +279,7 @@ def my_blueprint(user_info, db, bluid):
 # # end def isThisMyMask()
 
 
-def MaskUserObId(
-db,             # connection to PgSQL database with Keck slitmask info
-useremail,      # e-mail address to seek
-):
+def MaskUserObId(db, useremail, log):
     """
     If we do know the e-mail address of a mask user and we need to
     know the database primary key of that user.
@@ -324,25 +321,25 @@ useremail,      # e-mail address to seek
         the table of people in the Keck PI login database.
     """
 
-    userQuery   = ( "select ObId from Observers where email ilike %s" )
+    userQuery = ("select ObId from Observers where email ilike %s")
 
     try:
         db.cursor.execute(userQuery, (useremail,) )
     except Exception as e:
-        tclog.logger.error(
+        log.error(
         "%s failed: %s: exception class %s: %s"
         % ('userQuery', db.cursor.query, e.__class__.__name__, e) )
         return None
     # end try
 
-    results     = db.cursor.fetchall()
+    results = db.cursor.fetchall()
 
     lenres      = len(results)
 
     if lenres < 1:
         # lenres < 1 means there is no Observer with email useremail
         msg     = ( "%s is not a registered mask user" % (useremail))
-        tclog.logger.warning( msg )
+        log.warning( msg )
         # need to print/return other information
         print(msg)
         return None
@@ -350,7 +347,7 @@ useremail,      # e-mail address to seek
         # lenres > 1, this should be impossible according to our rules
         # because in table Observers field e-mail must be unique.
         msg     = ("db error: %s > 1 mask users with email %s" % (useremail))
-        tclog.logger.error( msg )
+        log.error( msg )
         # need to print/return other information
         print(msg)
         return None

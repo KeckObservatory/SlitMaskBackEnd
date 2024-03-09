@@ -69,9 +69,10 @@ def is_admin(user_info, log):
     return True
 
 
-def do_query(query_name, curse, query_params):
+def do_query(query_name, curse, query_params, query=None):
     log = log_fun.get_log()
-    query = get_query(query_name)
+    if not query:
+        query = get_query(query_name)
 
     try:
         curse.execute(query, query_params)
@@ -353,8 +354,9 @@ def order_mill_queue(results):
 
 
 def order_inventory(results):
+    print(results)
     new_keys_map = [
-        ('desid', 'Design-ID'), ('despid', 'Design-PI-ID'), ('uid', 'User ID'),
+        ('desid', 'Design-ID'), ('despid', 'Design-PI-ID'), #('uid', 'User ID'),
         ('projname', 'Project-Name'), ('desname', 'Design-Name'),
         ('desnslit', 'Number-Slits'), ('desnobj', 'Number-Objects'),
         ('instrume', 'Instrument'),
@@ -377,6 +379,24 @@ def order_cal_inventory(results):
         ('bluid', 'Blue-ID'), ('date_use', 'Date-Use'),
         ('milldate', 'Mill-Date'), ('instrume', 'Instrument'),
         ('instrume', 'Instrument'), ('desid', 'Design-ID')
+    ]
+
+    new_results = []
+    for result in results:
+        new_results.append(OrderedDict((new_key, result[orig_key]) for orig_key, new_key in new_keys_map))
+
+    return new_results
+
+
+def order_search_results(results):
+    # "d.desid, d.desname, d.desdate, projname, ra_pnt, dec_pnt, " \
+    # "radepnt, o.keckid, o.firstnm, o.lastnm, o.email, o.institution"
+    print(results)
+    new_keys_map = [
+        ('desid', 'Desin-ID'), ('desname', 'Design-Name'), ('projname', 'Project-Name'),
+        ('ra_pnt', 'RA'), ('dec_pnt', 'Declination'), ('radepnt', 'System'),
+        ('keckid', 'Keck-ID'), ('firstnm', 'First-Name'), ('lastnm', 'Last-Name'),
+        ('email', 'Email'), ('institution', 'Institution'), ('desdate', 'Design-Date')
     ]
 
     new_results = []

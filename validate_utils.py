@@ -62,7 +62,7 @@ def set_design_pid(db, hdul, maps):
     # TODO this needs to be keck ID
     # we require that MaskDesign.DesAuth contain a known user e-mail
     # find the primary key for that user
-    design_pid = MaskUserObId(db, DesAuthEmail)
+    design_pid = MaskUserObId(db, DesAuthEmail, log)
 
     if design_pid is None:
         msg = "no design pid"
@@ -84,7 +84,7 @@ def set_blue_pid(db, hdul, maps):
 
     # we require that MaskBlu.BluObsvr contain a known user e-mail
     # find the primary key for that user
-    BluPId = MaskUserObId(db, BluObsvrEmail)
+    BluPId = MaskUserObId(db, BluObsvrEmail, log)
     if BluPId is None:
         msg = "no blue pid"
         log.error(msg)

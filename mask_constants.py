@@ -25,3 +25,7 @@ RECENT_NDAYS = 14
 # in the same fashion as Tcl code Tlib/notifyBadSlits
 TOOL_DIAMETER = 15
 
+# admin search results columns
+# SEARCH_RESULTS = "d.desid, d.desname, d.desdate, projname, ra_pnt, dec_pnt, " \
+#                  "radepnt, o.keckid, o.firstnm, o.lastnm, o.email, o.institution"
+

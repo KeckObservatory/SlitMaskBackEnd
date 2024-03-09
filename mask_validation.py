@@ -200,6 +200,7 @@ class MaskValidation:
         # loop over content of ObjectCat
         # MDF files created from LRIS mask designs have no objects, so no rows.
         for row in self.hdul['ObjectCat'].data:
+            catfilepk = row['CatFilePK']
             if row['CatFilePK'] not in self.hdul['CatFiles'].data['CatFilePK']:
                 # we require that all ObjectCat.CatFilePK be in CatFiles.CatFilePK
                 # No tool which creates MDFs produces records like this.
@@ -207,9 +208,11 @@ class MaskValidation:
                 self.log.warning(msg)
                 self.err_report.append(msg)
 
+            objectid = row['ObjectId']
             if row['ObjClass'] == 'Guide_Star':
                 # DSIMULATOR has always included guide stars in its object catalog table
                 # We ingest those guide stars because we are not sure.
+                # We think that they do not correspond to a slitlet.
                 # They may be important when setting telescope and rotator
                 # position during mask alignment on sky before exposure.
                 # They may be important during data reduction.
