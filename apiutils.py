@@ -10,7 +10,7 @@ from os import path
 from general_utils import commitOrRollback
 import logger_utils as log_fun
 
-from general_utils import do_query
+from general_utils import do_query, get_dict_result
 from mask_constants import MASK_ADMIN
 
 
@@ -154,9 +154,9 @@ def maskStatus(db, bluid, newstatus):
     # develop debugging
     log.info(f"bluid {bluid} new millseq {newmillseq}")
 
-    errcnt, message = commitOrRollback(db)
+    status, message = commitOrRollback(db)
 
-    if errcnt != 0:
+    if status == 0:
         print("commitOrRollback failed: %s" % (message))
         return False
     # end if
@@ -169,7 +169,7 @@ def maskStatus(db, bluid, newstatus):
 ################################################
 
 
-def my_design(user_info, db, desid):
+def my_design(user_info, curse, desid):
     """
     Is the logged in user the Design Author or the Blueprint Observer?
     This can decide whether a non-admin user may modify mask records.
@@ -198,13 +198,13 @@ def my_design(user_info, db, desid):
     if user_info.user_type == MASK_ADMIN:
         return True
 
-    curse = db.cursor()
+    # curse = db_obj.cursor()
     params = (desid, user_info.ob_id, desid, user_info.ob_id)
     if not do_query('design_person', curse, params):
+        # error with query
         return False
 
     results = curse.fetchall()
-
     len_results = len(results)
 
     if len_results == 0:
@@ -217,7 +217,49 @@ def my_design(user_info, db, desid):
 ################################################
 
 
-def my_blueprint(user_info, curse, blue_id):
+def desid_to_bluid(design_id, curse):
+    """
+    Get the blue_id from the design_id.
+
+    :param design_id:
+    :type design_id:
+    :return:
+    :rtype:
+    """
+    if not do_query('design_to_blue', curse, (design_id,)):
+        err = 'Database Error!'
+        return False, err
+
+    blue_id_results = get_dict_result(curse)
+    if not blue_id_results or 'bluid' not in blue_id_results[0]:
+        err = f'Database Error,  no blue id found for design ID {design_id}!'
+        return False, err
+
+    return True, blue_id_results[0]['bluid']
+
+
+def bluid_to_desid(blue_id, curse):
+    """
+    Get the design_id from the blue_id.
+
+    :param blue_id:
+    :type blue_id:
+    :return:
+    :rtype:
+    """
+    if not do_query('blue_to_design', curse, (blue_id,)):
+        err = 'Database Error!'
+        return False, err
+
+    design_id_results = get_dict_result(curse)
+    if not design_id_results or 'desid' not in design_id_results[0]:
+        err = f'Database Error,  no design id found for blue ID {blue_id}!'
+        return False, err
+
+    return True, design_id_results[0]['desid']
+
+
+def my_blueprint(user_info, db_obj, blue_id):
 
     if user_info.user_type == MASK_ADMIN:
         return True
@@ -229,6 +271,48 @@ def my_blueprint(user_info, curse, blue_id):
 
     results = curse.fetchall()
 
+    len_results = len(results)
+
+    if len_results == 0:
+        return False
+
+    return True
+
+
+def my_blueprint_or_design(user_info, db_obj, blue_id):
+    """
+    Using the Blue Id check if the bluprint in owned by the logged in user.
+
+    :param user_info:
+    :type user_info:
+    :param db_obj:
+    :type db_obj:
+    :param blue_id:
+    :type blue_id:
+    :return:
+    :rtype:
+    """
+
+    if user_info.user_type == MASK_ADMIN:
+        return True
+
+    # first check if the blueprint is owned
+    if my_blueprint(user_info, db_obj, blue_id):
+        return True
+
+    curse = db_obj.get_dict_curse()
+
+    # get the design id
+    success, design_id = bluid_to_desid(blue_id, curse)
+    if not success:
+        return False
+
+    # check the design id (desid) against despid
+    params = (design_id, user_info.ob_id, design_id, user_info.ob_id)
+    if not do_query('design_person', curse, params):
+        return False
+
+    results = curse.fetchall()
     len_results = len(results)
 
     if len_results == 0:

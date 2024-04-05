@@ -13,6 +13,7 @@ from io import StringIO
 import apiutils as utils
 import general_utils as gen_utils
 from general_utils import do_query, is_admin
+# from mysql_utils import query_observers
 import ingest_fun
 
 from flask_cors import CORS
@@ -26,6 +27,9 @@ from mask_constants import MASK_ADMIN, MASK_USER, MASK_LOGIN, RECENT_NDAYS, \
 APP_PATH = path.abspath(path.dirname(__file__))
 TEMPLATE_PATH = path.join(APP_PATH, "Templates/")
 app = Flask(__name__, template_folder=TEMPLATE_PATH)
+
+# import psycopg2
+from psycopg2.extras import Json
 
 # CORS(app, origins='https://www3build.keck.hawaii.edu', allow_headers='Content-Type')
 
@@ -88,14 +92,18 @@ class UserInfo:
         # TODO this is a hack,  need something more permenant
         # if no entry in the mask observer table,  use the keck_id
         if not results:
+            # TODO this is a though
+            # if the obid is None,  need to get observer information from the keck observer table
+            # return None
             # check if an obid matches the keck if (avoid already defined keck-ids)
-            obid_query = f"select obid from observers where obid={self.keck_id}"
-            curse.execute(obid_query, None)
-            results = curse.fetchall()
-            if not results:
-                return self.keck_id
+            # obid_query = f"select obid from observers where obid={self.keck_id}"
+            # curse.execute(obid_query, None)
+            # results = curse.fetchall()
+            # if not results:
+            #     return self.keck_id
 
-            return self.keck_id * 1000
+            # keck_id will alway be > 1000 and obid always < 1000
+            return self.keck_id
 
         return results[0][0]
 
@@ -120,6 +128,11 @@ def init_api():
     print(f'user info: {user_info.keck_id} {user_info.ob_id}')
     if not user_info.keck_id:
         return None, None
+
+    # TODO this is how to get th obid column
+    # curse = db_obj.get_dict_curse()
+    # obid_col = gen_utils.get_obid_column(curse)
+
 
     return db_obj, user_info
 
@@ -159,7 +172,7 @@ def upload_mdf():
     if succeeded:
         return create_response(data={'msg': 'Mask was ingested into the database.'})
 
-    errors = "\n".join([f"• {item}" for item in err_report])
+    errors = "\n".join([f"• {err}" for err in err_report])
 
     return create_response(success=0, err=errors, stat=503)
 
@@ -219,8 +232,9 @@ def get_calibration_masks():
     if not user_info:
         return redirect(LOGIN_URL)
 
-    if not is_admin(user_info, log):
-        return create_response(success=0, err='Unauthorized', stat=401)
+    # TODO I think this is right?
+    # if not is_admin(user_info, log):
+    #     return create_response(success=0, err='Unauthorized', stat=401)
 
     curse = db_obj.get_dict_curse()
     if not do_query('standard_mask', curse, None):
@@ -257,7 +271,9 @@ def get_user_mask_inventory():
         return redirect(LOGIN_URL)
 
     curse = db_obj.get_dict_curse()
-    if not do_query('user_inventory', curse, (user_info.ob_id, user_info.ob_id)):
+    obid_col = gen_utils.get_obid_column(curse)
+
+    if not do_query('user_inventory', curse, (obid_col, user_info.ob_id, user_info.ob_id)):
         committed, msg = gen_utils.commitOrRollback(db_obj)
         log.error(f'Database Error!, commit: {committed}, msg: {msg}')
         return create_response(success=0, err='Database Error!', stat=503)
@@ -287,14 +303,7 @@ def get_mask_plot():
         path to SVG file with the plot
     """
     blue_id = request.args.get('blue-id')
-    # if not blue_id:
-    #     return create_response(success=0, stat=401,
-    #                            err=f'blue-id is a required parameter!')
-
     design_id = request.args.get('design-id')
-    # if not design_id:
-    #     return create_response(success=0, stat=401,
-    #                            err=f'design-id is a required parameter!')
 
     if not blue_id and not design_id:
         return create_response(success=0, stat=401,
@@ -312,21 +321,12 @@ def get_mask_plot():
 
     curse = db_obj.get_dict_curse()
     if not blue_id:
-        # get the blue_id from the design_id
-        if not do_query('design_to_blue', curse, (design_id,)):
-            return create_response(success=0, err='Database Error!', stat=503)
-
-        blue_id_results = gen_utils.get_dict_result(curse)
-        if not blue_id_results or 'bluid' not in blue_id_results[0]:
-            return create_response(
-                err=f'Database Error,  no blue id found for design ID {design_id}!',
-                success=0, stat=503
-            )
-        blue_id = blue_id_results[0]['bluid']
-        print("blue id from desid", blue_id)
+        success, blue_id = utils.desid_to_bluid(design_id, curse)
+        if not success:
+            return create_response(success=0, err=blue_id, stat=503)
 
     # confirm the user is listed as either BluPId or DesPId
-    if not utils.my_blueprint(user_info, db_obj, blue_id):
+    if not utils.my_blueprint_or_design(user_info, db_obj, blue_id):
         msg = f'User: {user_info.keck_id} with access: {user_info.user_type} ' \
               f'is Unauthorized to view blue print: {blue_id}!'
         print(msg)
@@ -385,7 +385,6 @@ def get_user_access_level():
     return create_response(data={'access_level': user_info.user_str})
 
 
-# TODO untested
 @app.route("/slitmask/extend-mask-use-date")
 def extend_mask_use_date():
     # def extendMaskUseDate( db, desid, howmany, timeunit ):
@@ -412,13 +411,13 @@ def extend_mask_use_date():
 
     # initialize db,  get user information,  redirect if not logged in.
     db_obj, user_info = init_api()
+    curse = db_obj.get_dict_curse()
+
     if not user_info:
         return redirect(LOGIN_URL)
 
-    if not is_admin(user_info, log):
+    if not utils.my_design(user_info, curse, design_id):
         return create_response(success=0, err='Unauthorized', stat=401)
-
-    curse = db_obj.get_dict_curse()
 
     exists, err, stat_code = gen_utils.chk_mask_exists(curse, design_id)
     if not exists:
@@ -433,13 +432,41 @@ def extend_mask_use_date():
 
     log.info(f"Database updated,  extended {design_id} for {num_days}")
 
-    return create_response(data={'msg': f'extended {design_id} for {num_days}'})
+    msg = f'The mask design {design_id} use-date has been extended for {num_days} days'
+    return create_response(data={'msg': msg})
 
 
 @app.route("/slitmask/forget-mask")
 def forget_mask():
-    # def c( db, bluid ):
-    return create_response(err='NOT IMPLEMENTED', data={})
+    # def forgetBlueprint(db, bluid):
+    blue_id = request.args.get('blue-id')
+    design_id = request.args.get('design-id')
+
+    if not blue_id and not design_id:
+        return create_response(success=0, stat=401,
+                               err=f'One of blue-id or design-id are required!')
+
+    db_obj, user_info = init_api()
+    if not user_info:
+        return redirect(LOGIN_URL)
+
+    if not blue_id:
+        curse = db_obj.get_dict_curse()
+        success, blue_id = utils.desid_to_bluid(design_id, curse)
+        if not success:
+            return create_response(success=0, err=blue_id, stat=503)
+
+    if not utils.my_blueprint_or_design(user_info, db_obj, blue_id):
+        return create_response(success=0, err='Unauthorized', stat=401)
+
+    # TODO need to update the maskStatus
+    success = utils.maskStatus(db_obj, blue_id, MaskBluStatusFORGOTTEN)
+
+    if not success:
+        return create_response(success=0, err='Database Error!', stat=503)
+
+    return create_response(data={'msg': f'Mask with blue id = {blue_id} has been forgotten'})
+
 
 
 @app.route("/slitmask/mill-mask")
@@ -627,12 +654,6 @@ def remill_mask():
     this should trigger e-mail to the mask Design and Blueprint owners
     this must   trigger e-mail to the mask admins
     """
-    blue_id = request.args.get('blue-id')
-    if not blue_id:
-        return create_response(success=0, stat=401,
-                               err=f'blue-id is a required parameter')
-
-    # initialize db,  get user information,  redirect if not logged in.
     db_obj, user_info = init_api()
     if not user_info:
         return redirect(LOGIN_URL)
@@ -640,38 +661,26 @@ def remill_mask():
     if not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
+    blue_id = request.args.get('blue-id')
+    design_id = request.args.get('design-id')
+
+    if not blue_id and not design_id:
+        return create_response(success=0, stat=401,
+                               err=f'One of blue-id or design-id are required!')
+
+    if not blue_id:
+        curse = db_obj.get_dict_curse()
+        success, blue_id = utils.desid_to_bluid(design_id, curse)
+        if not success:
+            return create_response(success=0, err=blue_id, stat=503)
+
     # mark blueprint as forgotten
     retval = utils.maskStatus(db_obj, blue_id, MaskBluStatusFORGOTTEN)
-
-    print(f"{retval} forgetBlueprint/maskStatus: bluid {bluid} "
-          f"newstatus {MaskBluStatusFORGOTTEN}")
-
-    # maskStatus did the commitOrRollback
-
-    # here we run into a problem that has existed since inception
-    # simply marking as forgotten does not remove the blueprint record
-    # marking as forgotten does not remove related records in tables
-    # BluSlits, MaskDesign, DesiSlits, SlitObjMap, Objects, Mask
-
-    # TODO
-    # also, if this blueprint has already been milled, simply marking
-    # as forgotten does not remove that physical mask from the storage
-    # bins at Keck summit.
-
-    # so what does the actual deletion?
-    # is there a cron job that tries to do the deletion?
-
-    # inspection of the Sybase contents in 2023 showed hundreds of
-    # thousands of orphan records in the database
-
-    # so whatever it was that was supposed to take action on
-    # blueprints marked forgotten has not been doing its job well
 
     # TODO add mail lookup for user/owner
     print("foo bar need mail to user/owner and admins here")
 
-    return
-
+    return create_response(success=1, data=retval)
 
 # Admin-only API functions
 
@@ -849,17 +858,28 @@ def get_all_valid_masks():
     if not user_info:
         return redirect(LOGIN_URL)
 
-    recent_date = gen_utils.get_recent_day(request)
-
     if not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
     curse = db_obj.get_dict_curse()
+    obid_col = gen_utils.get_obid_column(curse)
+    full_obs_info = gen_utils.get_observer_dict(curse)
 
-    if not do_query('mask_valid', curse, (recent_date,)):
+    if not do_query('mask_valid', curse, (obid_col, )):
         return create_response(success=0, err='Database Error!', stat=503)
 
     results = gen_utils.get_dict_result(curse)
+
+    # add in the observer information
+    match_dict = {observer['obid']: observer for observer in full_obs_info}
+
+    for obs in results:
+        obid = obs['obid']
+        if obid in match_dict:
+            obs['keckid'] = match_dict[obid]['keckid']
+            obs['FirstName'] = match_dict[obid]['FirstName']
+            obs['LastName'] = match_dict[obid]['LastName']
+            obs['Email'] = match_dict[obid]['Email']
 
     return create_response(data=results)
 
@@ -971,59 +991,59 @@ def set_perpetual_mask_use_date():
 # TODO do we need this?
 # if we do,  we need to merge the 3 queries - either the design-id and blue-id can be the OB-ID
 # https://www3build.keck.hawaii.edu/sandbox/lfuhrman/Slitmask/SlitMaskUsers.html
-@app.route("/slitmask/mask-system-users")
-def get_mask_system_users():
-    # def getMaskSystemUsers( db ):
-    """
-    list all users who own a mask design or mask blueprint
-    corresponds to Tcl directory.cgi.sin
-
-    In the original Tcl web pages this could be run by
-    any logged-in mask user.
-    This code restricts the query to users with admin privs.
-
-    The original Tcl code dumped all info about the observers.
-    This python code supposes that the full observer info is
-    better managed by other tools.
-    This python code looks only at mask-related info.
-    For each observer who owns a mask design or mask blueprint
-    How many designs, and info about those
-    How many blueprints, and info about those
-    How many masks in inventory, and info about those
-
-    outputs:
-    info about observers who own masks
-    """
-    # initialize db,  get user information,  redirect if not logged in.
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
-    if not is_admin(user_info, log):
-        return create_response(success=0, err='Unauthorized', stat=401)
-
-    curse = db_obj.get_dict_curse()
-
-    # find all users who have a MaskDesign or MaskBlueprint
-    if not do_query('mask_users', curse, None):
-        return create_response(success=0, err='Database Error!', stat=503)
-
-    result_list = []
-    result_list += gen_utils.get_dict_result(curse)
-
-    # find all physical masks and info about owners of their Design or Blueprint
-    if not do_query('observer_mask', curse, None):
-        return create_response(success=0, err='Database Error!', stat=503)
-
-    result_list += gen_utils.get_dict_result(curse)
-
-    # find all Designs and Blueprints with no physical mask and their owner info
-    if not do_query('observer_no_mask', curse, None):
-        return create_response(success=0, err='Database Error!', stat=503)
-
-    result_list += gen_utils.get_dict_result(curse)
-
-    return create_response(data=result_list)
+# @app.route("/slitmask/mask-system-users")
+# def get_mask_system_users():
+#     # def getMaskSystemUsers( db ):
+#     """
+#     list all users who own a mask design or mask blueprint
+#     corresponds to Tcl directory.cgi.sin
+#
+#     In the original Tcl web pages this could be run by
+#     any logged-in mask user.
+#     This code restricts the query to users with admin privs.
+#
+#     The original Tcl code dumped all info about the observers.
+#     This python code supposes that the full observer info is
+#     better managed by other tools.
+#     This python code looks only at mask-related info.
+#     For each observer who owns a mask design or mask blueprint
+#     How many designs, and info about those
+#     How many blueprints, and info about those
+#     How many masks in inventory, and info about those
+#
+#     outputs:
+#     info about observers who own masks
+#     """
+#     # initialize db,  get user information,  redirect if not logged in.
+#     db_obj, user_info = init_api()
+#     if not user_info:
+#         return redirect(LOGIN_URL)
+#
+#     if not is_admin(user_info, log):
+#         return create_response(success=0, err='Unauthorized', stat=401)
+#
+#     curse = db_obj.get_dict_curse()
+#
+#     # find all users who have a MaskDesign or MaskBlueprint
+#     if not do_query('mask_users', curse, None):
+#         return create_response(success=0, err='Database Error!', stat=503)
+#
+#     result_list = []
+#     result_list += gen_utils.get_dict_result(curse)
+#
+#     # find all physical masks and info about owners of their Design or Blueprint
+#     if not do_query('observer_mask', curse, None):
+#         return create_response(success=0, err='Database Error!', stat=503)
+#
+#     result_list += gen_utils.get_dict_result(curse)
+#
+#     # find all Designs and Blueprints with no physical mask and their owner info
+#     if not do_query('observer_no_mask', curse, None):
+#         return create_response(success=0, err='Database Error!', stat=503)
+#
+#     result_list += gen_utils.get_dict_result(curse)
+#
+#     return create_response(data=result_list)
 
 
 # -- end Admin only
@@ -1057,14 +1077,13 @@ def get_mask_detail():
     if not user_info:
         return redirect(LOGIN_URL)
 
-    db = db_obj.get_conn()
     curse = db_obj.get_dict_curse()
 
     if user_info.user_type not in (MASK_ADMIN, MASK_USER):
         return create_response(success=0, stat=401,
                                err=f'{user_info.user_type} is Unauthorized!')
 
-    if not utils.my_design(user_info, db, design_id):
+    if not utils.my_design(user_info, curse, design_id):
         msg = f'Unauthorized for keck_id: {user_info.keck_id} as ' \
               f'{user_info.user_type}) to view mask with Design ID: {design_id}'
         print(msg)
@@ -1086,6 +1105,7 @@ def get_mask_detail():
     design_pid = mask_design_results[0]['despid']
 
     # order the results and create GUI friendly keys
+    print(f'details: {mask_design_results[0]}')
     mask_design = gen_utils.order_mask_design(mask_design_results[0])
 
     result_list = [['Mask Design', [mask_design]]]
@@ -1094,10 +1114,13 @@ def get_mask_detail():
 
     # query the Design Author from Observers
     # TODO this one would need to query the observer database
-    if not do_query('design_author_obs', curse, (design_pid, )):
-        return create_response(success=0, err='Database Error!', stat=503)
+    # if not do_query('design_author_obs', curse, (design_pid, )):
+    #     return create_response(success=0, err='Database Error!', stat=503)
+    #
+    # results = gen_utils.get_dict_result(curse)
 
-    results = gen_utils.get_dict_result(curse)
+    keck_obs_info = gen_utils.get_observer_dict(curse)
+    results = [obsvr for obsvr in keck_obs_info if obsvr['obid'] == design_pid]
 
     if len(results) == 0:
         msg = f"DesPId {design_pid} exists in DesId {design_id} but not in table Observers"
@@ -1141,6 +1164,7 @@ def get_mask_detail():
 
     results = gen_utils.get_dict_result(curse)
     result_list += [['Blueprint', results]]
+    print(f'details2: {results}')
 
     for maskblurow in results:
 
@@ -1151,10 +1175,13 @@ def get_mask_detail():
 
         # query the Blueprint Observer from Observers
         # TODO this one would need to query the observer database
-        if not do_query('blue_obs_obs', curse, (design_pid,)):
-            return create_response(success=0, err='Database Error!', stat=503)
+        # if not do_query('blue_obs_obs', curse, (blupid,)):
+        #     return create_response(success=0, err='Database Error!', stat=503)
+        #
+        # results = gen_utils.get_dict_result(curse)
 
-        results = gen_utils.get_dict_result(curse)
+        keck_obs_info = gen_utils.get_observer_dict(curse)
+        results = [obsvr for obsvr in keck_obs_info if obsvr['obid'] == blupid]
 
         if len(results) == 0:
             msg = f"BluPId {blupid} exists in BluId {bluid} but not in table Observers"
@@ -1211,6 +1238,7 @@ def get_mask_description_file():
     if not user_info:
         return redirect(LOGIN_URL)
 
+    # if not utils.my_blueprint(user_info, db_obj, blue_id):
     if not utils.my_blueprint(user_info, db_obj, blue_id):
         msg = f"Unauthorized: BluId {blue_id} does not belong to {user_info.keck_id}"
         return create_response(success=0, err=f'{msg}', stat=401)
@@ -1226,6 +1254,37 @@ def get_mask_description_file():
             'mask_ali_filename': mask_ali_filename
         }
     )
+
+
+# @app.route("/slitmask/get-blue-id")
+# def blue_id_to_design_id():
+#     design_id = request.args.get('design-id')
+#     if not design_id:
+#         return create_response(success=0, stat=401,
+#                                err=f'design-id is a required parameter')
+#
+#     # initialize db,  get user information,  redirect if not logged in.
+#     db_obj, user_info = init_api()
+#     if not user_info:
+#         return redirect(LOGIN_URL)
+#
+#     db = db_obj.get_conn()
+#     curse = db_obj.get_dict_curse()
+#
+#     if not do_query('design', curse, (design_id, )):
+#         return create_response(success=0, err='Database Error!', stat=503)
+#
+#     # first result - mask design details
+#     mask_design_results = gen_utils.get_dict_result(curse)
+#
+#     # if len(mask_design_results) == 0:
+#     if not mask_design_results:
+#         msg = f"DesId {design_id} does not exist in table MaskDesign"
+#         log.warning(msg)
+#         return create_response(success=0, err=msg, stat=200)
+
+
+
 
 
 if __name__ == '__main__':

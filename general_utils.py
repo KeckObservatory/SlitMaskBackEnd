@@ -4,6 +4,8 @@ import configparser
 import logger_utils as log_fun
 import psycopg2
 import psycopg2.extras
+from psycopg2 import DatabaseError
+
 import subprocess
 
 from datetime import date, timedelta
@@ -14,6 +16,8 @@ from gnuplot5 import *
 
 from mask_constants import MASK_ADMIN, RECENT_NDAYS
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
+
+from mysql_utils import query_observers
 
 from collections import OrderedDict
 
@@ -59,6 +63,71 @@ def get_userinfo():
     return userinfo
 
 
+def get_observer_dict(curse):
+    """
+    Get the MySQL observer table and merge this with the obid in the slitmask
+    PostGreSQL observer table.  The slitmask observer table is no longer
+    updated (2024) but is required for legacy masks with original obid.
+
+    :param curse: the PostGreSQL database cursor
+    :type curse: dict cursor
+    :return: the observer information with columns:
+        Id (keck ID), Firstname, Lastname, Email, Affiliation, AllocInst
+    :rtype:
+    """
+    keck_observers_mysql = query_observers()
+
+    observer_table = []
+    if keck_observers_mysql:
+
+        # get the original observers from the slitmask db (no longer update 2024)
+        if not do_query('obid_column', curse, None):
+            # TODO handle this exception
+            raise DatabaseError("Database Error!")
+
+        slitmask_observers = get_dict_result(curse)
+
+        slitmask_obs_by_keckid = {item['keckid']: item for item in slitmask_observers}
+
+        for item in keck_observers_mysql:
+            keckid = item['keckid']
+            if keckid in slitmask_obs_by_keckid:
+                merged_item = {**slitmask_obs_by_keckid[keckid], **item}
+            else:
+                merged_item = {'obid': keckid, **item}
+            observer_table.append(merged_item)
+    else:
+        print('no results from observers')
+
+    return observer_table
+
+
+def get_obid_column(curse):
+    """
+    Get a list the represents the OBID column from the combine mysql observer
+    table and the psql observers table.
+
+    If no obid in the original slitmask observer table (always < 1000),
+        use keckid (always > 1000)
+
+    :return: list of slitmask observer ids
+    :rtype: list
+    """
+    observer_table = get_observer_dict(curse)
+    iter = 0
+    for obs_dict in observer_table:
+        iter += 1
+        print(obs_dict)
+        if iter > 10:
+            break
+
+    obid_column = [item['obid'] for item in observer_table]
+
+    return obid_column
+
+
+
+
 def is_admin(user_info, log):
     if user_info.user_type != MASK_ADMIN:
         msg = f'User: {user_info.keck_id} with access level: ' \
@@ -74,11 +143,11 @@ def do_query(query_name, curse, query_params, query=None):
     if not query:
         query = get_query(query_name)
 
+    print(query, query_params)
     try:
         curse.execute(query, query_params)
     except Exception as e:
-        log.error(f"{query_name} failed: {curse.query}: "
-                  f"{e.__class__.__name__}, {e}")
+        log.error(f"{query_name} failed")
         return False
 
     return True
@@ -359,11 +428,12 @@ def order_inventory(results):
         ('desid', 'Design-ID'), ('despid', 'Design-PI-ID'), #('uid', 'User ID'),
         ('projname', 'Project-Name'), ('desname', 'Design-Name'),
         ('desnslit', 'Number-Slits'), ('desnobj', 'Number-Objects'),
-        ('instrume', 'Instrument'),
-        ('ra_pnt', 'RA'), ('dec_pnt', 'DEC'),
+        ('instrume', 'Instrument'), ('ra_pnt', 'RA'), ('dec_pnt', 'DEC'),
         ('radepnt', 'Coordinates'), ('equinpnt', 'Equinox'),
-        ('pa_pnt', 'Position Angle'), ('lst_pnt', 'LST'), ('date_pnt', 'Observation Date'),
-        ('masktype', 'Mask-Type'), ('descreat', 'Design-Creation'), ('desdate', 'Design-Date'), ('stamp', 'Time-Stamp')
+        ('pa_pnt', 'Position Angle'), ('lst_pnt', 'LST'),
+        ('date_pnt', 'Observation Date'), ('masktype', 'Mask-Type'),
+        ('descreat', 'Design-Creation'), ('desdate', 'Design-Date'),
+        ('stamp', 'Time-Stamp')
     ]
 
     new_results = []
@@ -393,7 +463,7 @@ def order_search_results(results):
     # "radepnt, o.keckid, o.firstnm, o.lastnm, o.email, o.institution"
     print(results)
     new_keys_map = [
-        ('desid', 'Desin-ID'), ('desname', 'Design-Name'), ('projname', 'Project-Name'),
+        ('desid', 'Design-ID'), ('desname', 'Design-Name'), ('projname', 'Project-Name'),
         ('ra_pnt', 'RA'), ('dec_pnt', 'Declination'), ('radepnt', 'System'),
         ('keckid', 'Keck-ID'), ('firstnm', 'First-Name'), ('lastnm', 'Last-Name'),
         ('email', 'Email'), ('institution', 'Institution'), ('desdate', 'Design-Date')

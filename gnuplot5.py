@@ -249,7 +249,7 @@ class Gnuplot5():
         self.gpfp.write("fgnum = fgnum + 1\n")
 
         # 1 mm is way bigger than the tool and hole diameter, but this is just a schematic
-        self.gpfp.write("set object fgnum circle center %.3f,%.3f size 1" % (xc,yc))
+        self.gpfp.write("set object fgnum circle center %.3f,%.3f size 1\n" % (xc,yc))
 
         self.gpfp.write("set object fgnum fillcolor '%s' fillstyle solid noborder\n" % (hue))
 

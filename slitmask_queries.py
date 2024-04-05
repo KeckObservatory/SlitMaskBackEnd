@@ -8,6 +8,7 @@ ownership_queries = {
         FROM MaskBlu
         WHERE BluId = %s and BluPId = %s;
         """,
+
     "design_person": """
         SELECT DesPId AS MaskId
         FROM MaskDesign
@@ -17,7 +18,13 @@ ownership_queries = {
         FROM MaskBlu
         WHERE DesId = %s and BluPId = %s;
         """,
-    "design_to_blue": "select bluid from maskblu where desid = %s"
+
+    "design_to_blue": "SELECT bluid FROM maskblu WHERE desid = %s",
+
+    "blue_to_design": "SELECT desid FROM maskblu WHERE bluid = %s",
+
+    # used to get all the < yr 2024 account obids,  > yr 2024 accounts obid=keckid
+    "obid_column": "SELECT obid, keckid FROM observers"
 }
 
 
@@ -40,10 +47,21 @@ retrieval_queries = {
               AND m.bluid = b.bluid AND d.DesId = b.DesId
         """,
 
+    # "user_inventory": """
+    #     SELECT d.*
+    #     FROM MaskDesign d, Observers o
+    #     WHERE o.ObId = d.DesPId
+    #     AND (d.DesPId = %s OR d.DesId IN
+    #         (SELECT DesId FROM MaskBlu WHERE BluPId = %s))
+    #     ORDER BY d.stamp DESC;
+    #     """,
+
     "user_inventory": """
         SELECT d.*
-        FROM MaskDesign d, Observers o 
-        WHERE o.ObId = d.DesPId 
+        FROM MaskDesign d
+        WHERE d.DesPId IN (
+            SELECT id FROM unnest(%s) AS id
+        )
         AND (d.DesPId = %s OR d.DesId IN 
             (SELECT DesId FROM MaskBlu WHERE BluPId = %s)) 
         ORDER BY d.stamp DESC;
@@ -64,7 +82,7 @@ retrieval_queries = {
 
     "design": "SELECT * FROM MaskDesign WHERE DesId = %s",
 
-    "design_author_obs": "SELECT * FROM Observers WHERE ObId = %s;",
+    # "design_author_obs": "SELECT * FROM Observers WHERE ObId = %s;",
 
     "objects": """
         SELECT * FROM Objects WHERE ObjectId IN
@@ -77,7 +95,7 @@ retrieval_queries = {
 
     "mask_blue": "SELECT * FROM MaskBlu WHERE DesId = %s",
 
-    "blue_obs_obs": "SELECT * FROM Observers WHERE ObId = %s",
+    # "blue_obs_obs": "SELECT * FROM Observers WHERE ObId = %s",
 
     "blue_slit": "SELECT * FROM BluSlits WHERE BluId = %s",
 
@@ -136,15 +154,34 @@ admin_queries = {
         ORDER BY b.Date_Use, d.INSTRUME
         """,
 
+    # TODO replaced
+    # "mask_valid": """
+    #     select m.MaskId, m.GUIname, m.MillSeq, b.Date_Use, o.FirstNm,
+    #            o.LastNm, b.status, d.INSTRUME, o.keckid
+    #     from Mask m, MaskBlu b, Observers o, MaskDesign d
+    #     where b.BluId = m.BluId
+    #     and d.DesId = b.DesId
+    #     and o.ObId = d.DesPId
+    #     order by d.INSTRUME, m.MaskId
+    #     """,
+
+
     "mask_valid": """
-        select m.MaskId, m.GUIname, m.MillSeq, b.Date_Use, o.FirstNm, 
-               o.LastNm, b.status, d.INSTRUME, o.keckid
-        from Mask m, MaskBlu b, Observers o, MaskDesign d
-        where b.BluId = m.BluId
-        and d.DesId = b.DesId
-        and o.ObId = d.DesPId
-        order by d.INSTRUME, m.MaskId
+    SELECT 
+        m.MaskId, m.GUIname, m.MillSeq, b.Date_Use, 
+        b.status, d.INSTRUME, subquery.obid
+    FROM 
+        Mask m, MaskBlu b, MaskDesign d
+    JOIN 
+        (SELECT unnest(%s) AS obid) AS subquery ON d.DesPId = subquery.obid
+    WHERE 
+        b.BluId = m.BluId
+        AND d.DesId = b.DesId
+    ORDER BY 
+        d.INSTRUME, m.MaskId
         """,
+
+
 
     "mask_delete": "DELETE FROM Mask WHERE MaskId = %s",
 
@@ -160,72 +197,75 @@ admin_queries = {
             )        
         """,
 
-    "mask_users": """
-        SELECT ObId, FirstNm, LastNm FROM Observers
-        WHERE ObId IN (SELECT DesPId FROM MaskDesign)
-        OR ObId IN (SELECT BluPId FROM MaskBlu)
-        """,
+    # TODO deemed unnecessary - get_mask_system_users
+    # "mask_users": """
+    #     SELECT ObId, FirstNm, LastNm FROM Observers
+    #     WHERE ObId IN (SELECT DesPId FROM MaskDesign)
+    #     OR ObId IN (SELECT BluPId FROM MaskBlu)
+    #     """,
 
-    "observer_mask": """
-        SELECT o.FirstNm, o.LastNm, d.DesPId, d.DesId, b.BluId, b.status,  
-               b.BluPId, m.MaskId
-        FROM Observers o, MaskDesign d, MaskBlu b, Mask m
-        WHERE (
-          o.ObId in (SELECT DesPId FROM MaskDesign)
-          OR
-          o.ObId in (SELECT BluPId FROM MaskBlu)
-        )
-        AND m.BluId = b.BluId
-        AND b.DesId = d.DesId
-        AND
-        (
-          ( 
-              b.BluPId = d.DesPId
-          AND b.BluPId = o.ObId
-          )
-          OR
-          ( 
-              b.BluPId != d.DesPId
-          AND b.BluPId = o.ObId
-          )
-          OR
-          (
-              b.BluPId != d.DesPId
-          AND d.DesPId = o.ObId
-          )
-        )
-        ORDER BY d.DesPId
-        """,
+    # TODO deemed unnecessary - get_mask_system_users
+    # "observer_mask": """
+    #     SELECT o.FirstNm, o.LastNm, d.DesPId, d.DesId, b.BluId, b.status,
+    #            b.BluPId, m.MaskId
+    #     FROM Observers o, MaskDesign d, MaskBlu b, Mask m
+    #     WHERE (
+    #       o.ObId in (SELECT DesPId FROM MaskDesign)
+    #       OR
+    #       o.ObId in (SELECT BluPId FROM MaskBlu)
+    #     )
+    #     AND m.BluId = b.BluId
+    #     AND b.DesId = d.DesId
+    #     AND
+    #     (
+    #       (
+    #           b.BluPId = d.DesPId
+    #       AND b.BluPId = o.ObId
+    #       )
+    #       OR
+    #       (
+    #           b.BluPId != d.DesPId
+    #       AND b.BluPId = o.ObId
+    #       )
+    #       OR
+    #       (
+    #           b.BluPId != d.DesPId
+    #       AND d.DesPId = o.ObId
+    #       )
+    #     )
+    #     ORDER BY d.DesPId
+    #     """,
 
-    "observer_no_mask": """
-        select o.FirstNm, o.LastNm, d.DesPId, d.DesId, b.BluId, b.status, b.BluPId, -1 as MaskId, b.Date_Use
-        from Observers o, MaskDesign d, MaskBlu b
-        where
-        b.BluId not in (select BluId from Mask)
-        and
-        b.DesId = d.DesId
-        and
-        (
-          ( /* get mask designs of this observer with blueprints of this observer and no mask */
-              b.BluPId = d.DesPId
-          and b.BluPId = o.ObId
-          and o.ObId in (select DesPId from MaskDesign)
-          )
-          or
-          ( /* get mask designs of this observer with blueprints not of this observer and no mask */
-              b.BluPId != d.DesPId
-          and d.DesPId = o.ObId
-          and o.ObId in (select DesPId from MaskDesign)
-          )
-          or
-          ( /* get mask designs not of this observer with blueprints of this observer and no mask */
-              b.BluPId != d.DesPId
-          and b.BluPId = o.ObId
-          and o.ObId in (select BluPId from MaskBlu)
-          )
-        )
-        order by o.ObId
-        """
+    # TODO deemed unnecessary - get_mask_system_users
+    # "observer_no_mask": """
+    #     select o.FirstNm, o.LastNm, d.DesPId, d.DesId, b.BluId, b.status, b.BluPId, -1 as MaskId, b.Date_Use
+    #     from Observers o, MaskDesign d, MaskBlu b
+    #     where
+    #     b.BluId not in (select BluId from Mask)
+    #     and
+    #     b.DesId = d.DesId
+    #     and
+    #     (
+    #       ( /* get mask designs of this observer with blueprints of this observer and no mask */
+    #           b.BluPId = d.DesPId
+    #       and b.BluPId = o.ObId
+    #       and o.ObId in (select DesPId from MaskDesign)
+    #       )
+    #       or
+    #       ( /* get mask designs of this observer with blueprints not of this observer and no mask */
+    #           b.BluPId != d.DesPId
+    #       and d.DesPId = o.ObId
+    #       and o.ObId in (select DesPId from MaskDesign)
+    #       )
+    #       or
+    #       ( /* get mask designs not of this observer with blueprints of this observer and no mask */
+    #           b.BluPId != d.DesPId
+    #       and b.BluPId = o.ObId
+    #       and o.ObId in (select BluPId from MaskBlu)
+    #       )
+    #     )
+    #     order by o.ObId
+    #     """
 
 }
 
