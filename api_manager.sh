@@ -4,7 +4,7 @@ cmd="$1"
 
 python_cmd="/usr/local/anaconda3/bin/python "
 echo $python_cmd
-script_cmd="slitmask_api.py slitmask_cfg.ini"
+script_cmd="slitmask_api.py slitmask_cfg.live.ini"
 echo $script_cmd
 start_cmd=$python_cmd$script_cmd
 echo $start_cmd

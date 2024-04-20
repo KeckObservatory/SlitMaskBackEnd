@@ -3,7 +3,7 @@ import numpy
 from datetime import datetime
 
 from mdf_content import mdfcontent
-from apiutils import MaskUserObId
+from apiutils import mask_user_id
 import logger_utils as log_fun
 
 
@@ -20,16 +20,6 @@ def mdf_table_rows(hdul, err_report, log):
         msg = "MaskDesign has more than one row.  We will ingest only one."
         log.warning(msg)
         err_report.append(msg)
-        # return True, err_report
-
-    # DesId = hdul['MaskDesign'].data['DesId'][ONLYONE]
-    # INSTRUME = hdul['MaskDesign'].data['INSTRUME'][ONLYONE]
-    # DesNslit = hdul['MaskDesign'].data['DesNslit'][ONLYONE]
-    # DesDATE_PNT = hdul['MaskDesign'].data['DATE_PNT'][ONLYONE]
-    #
-    # # find e-mail address of mask designer
-    # DesAuth = hdul['MaskDesign'].data['DesAuth'][ONLYONE]
-    # DesAuthEmail = mbox2email(DesAuth)
 
     return True, err_report
 
@@ -51,7 +41,7 @@ def mask_blue_rows(hdul, err_report, log):
     return True, err_report
 
 
-def set_design_pid(db, hdul, maps):
+def set_design_pid(db, hdul, maps, sql_params):
     log = log_fun.get_log()
 
     # TODO this should be associated to keck-id
@@ -59,22 +49,19 @@ def set_design_pid(db, hdul, maps):
     DesAuth = hdul['MaskDesign'].data['DesAuth'][0]
     DesAuthEmail = mbox2email(DesAuth)
 
-    # TODO this needs to be keck ID
-    # we require that MaskDesign.DesAuth contain a known user e-mail
-    # find the primary key for that user
-    design_pid = MaskUserObId(db, DesAuthEmail, log)
+    # get user
+    design_pid = mask_user_id(db, DesAuthEmail, sql_params)
 
     if design_pid is None:
         msg = "no design pid"
         log.error(msg)
-        # err_report.append(msg)
     else:
         maps.obid[DesAuth] = design_pid
 
     return maps
 
 
-def set_blue_pid(db, hdul, maps):
+def set_blue_pid(db, hdul, maps, sql_params):
     log = log_fun.get_log()
 
     # TODO this needs to be keck-id
@@ -84,11 +71,10 @@ def set_blue_pid(db, hdul, maps):
 
     # we require that MaskBlu.BluObsvr contain a known user e-mail
     # find the primary key for that user
-    BluPId = MaskUserObId(db, BluObsvrEmail, log)
+    BluPId = mask_user_id(db, BluObsvrEmail, sql_params)
     if BluPId is None:
         msg = "no blue pid"
         log.error(msg)
-        # err_report.append(msg)
     else:
         maps.obid[BluObsvr] = BluPId
 

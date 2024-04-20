@@ -53,7 +53,7 @@ class mdf2dbmaps:
 ########################################################################
 
 
-def validate_mdf_content(keck_id, hdul, db, maps):
+def validate_mdf_content(keck_id, hdul, db, maps, sql_params):
     """
     hdul,   # HDU list from opening a FITS file
     db,     # connection to PgSQL database with Keck slitmask info
@@ -81,7 +81,7 @@ def validate_mdf_content(keck_id, hdul, db, maps):
     if not valid:
         return False, err_report
 
-    maps = valid_utils.set_design_pid(db, hdul, maps)
+    maps = valid_utils.set_design_pid(db, hdul, maps, sql_params)
 
     ####################################################################
     # MASK BLUE
@@ -91,7 +91,7 @@ def validate_mdf_content(keck_id, hdul, db, maps):
     if not valid:
         return False, err_report
 
-    maps = valid_utils.set_blue_pid(db, hdul, maps)
+    maps = valid_utils.set_blue_pid(db, hdul, maps, sql_params)
 
     ####################################################################
 
@@ -161,7 +161,7 @@ def validate_mdf_content(keck_id, hdul, db, maps):
 ########################################################################
 
 
-def validate_MDF(keck_id, hdul, db, maps):
+def validate_MDF(keck_id, hdul, db, maps, sql_params):
     """
     hdul,           # astropy FITS hdulist
     db,             # connection to slitmask database
@@ -220,7 +220,7 @@ def validate_MDF(keck_id, hdul, db, maps):
         return False, badtables
 
     # validate the content
-    status, err_report = validate_mdf_content(keck_id, hdul, db, maps)
+    status, err_report = validate_mdf_content(keck_id, hdul, db, maps, sql_params)
 
     return status, err_report
 
@@ -228,7 +228,7 @@ def validate_MDF(keck_id, hdul, db, maps):
 ########################################################################
 
 
-def ingestMDF(user_info, file, db, maps):
+def ingestMDF(user_info, file, db, maps, sql_params):
     """
 
     file,           # path to a MDF file
@@ -251,7 +251,7 @@ def ingestMDF(user_info, file, db, maps):
         return False, [msg]
 
     # validate the structure and content of the file
-    valid, err_report = validate_MDF(user_info.keck_id, hdul, db, maps)
+    valid, err_report = validate_MDF(user_info.keck_id, hdul, db, maps, sql_params)
 
     if not valid:
         err_report.append(f"did not insert because file had problems")

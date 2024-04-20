@@ -1,11 +1,12 @@
 import re
 
-from apiutils import MaskUserObId
+from apiutils import mask_user_id
 import logger_utils as log_fun
 
 from mask_constants import MaskBluStatusMILLED
 
-def admin_search(options, db):
+
+def admin_search(options, db, sql_params):
     """
     A list of known keys which may be found in dict.
 
@@ -150,21 +151,17 @@ def admin_search(options, db):
 
     # step through the exclusive keys in order
     if 'email' in options:
-        print(f"found 'email' = {options}")
-
         # Before trying to query for matching masks
         # we want to ascertain whether email matches a known user
         # so that we can report a separate error about the
         # unrecognized value of email.
 
-        search_obid = MaskUserObId(db, options['email'], log)
+        search_obid = mask_user_id(db, options['email'], sql_params)
         # obid = user_info.ob_id
 
         if search_obid == None:
             log.warning(f"user is not in database of known mask users {options['email']}")
-            return None
-
-        print("inst_query", inst_query)
+            return None, None
 
         adminInventoryQuery = (
             f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
@@ -474,30 +471,3 @@ def admin_search(options, db):
 
     return adminInventoryQuery, queryargtup
 
-    # try:
-    #     db.cursor.execute(adminInventoryQuery, queryargtup)
-    # except Exception as e:
-    #     log.error(
-    #         "%s failed: %s: exception class %s: %s" % ('adminInventoryQuery', db.cursor.query, e.__class__.__name__, e))
-    #
-    #     log.error("failed adminInventoryQuery %s" % (adminInventoryQuery,))
-    #     # log.error("failed queryargtup %s" % (queryargtup,))
-    #     log.error("failed queryargtup %s" % queryargtup)
-    #
-    #     errcnt, message = commitOrRollback(db)
-    #
-    #     if errcnt != 0:
-    #         print("commitOrRollback failed: %s" % (message))
-    #     # end if
-    #
-    #     print("commitOrRollback worked, db should be reset")
-    #
-    #     return FAILURE  # adminInventoryQueryfailed
-    # # end try
-    #
-    # results = dumpselect(db)  # during development dump query results to stdout
-    #
-    # # look at the cgiTcl file inventory.cgi.sin
-    #
-    # # return SUCCESS
-    # return create_response(err='NOT IMPLEMENTED', data={})

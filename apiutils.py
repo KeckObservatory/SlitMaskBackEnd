@@ -1,10 +1,8 @@
-#! /usr/bin/python3
-
-################################################
-
 import sys
 import datetime
 import subprocess
+import pymysql.cursors
+
 from os import path
 
 from general_utils import commitOrRollback
@@ -14,204 +12,108 @@ from general_utils import do_query, get_dict_result
 from mask_constants import MASK_ADMIN
 
 
-################################################
-def generate_mask_descript(bluid):
+def generate_mask_descript(blue_id, exec_dir, out_dir, KROOT):
     """
     generate the multi-HDU FITS file which can be appended onto a DEIMOS image
         (or LRIS image)
+
     HDUs in the FITS file are tables which describe a slitmask
 
-    This python function requires invoking external program
-        dbMaskOut
-            Tcl script
-            for the version to be used with this python code
-            source code lives in SVN at:
-                kroot/util/slitmask/xfer2keck/tcl
-            extracts mask data from database and writes FITS file
+    The TCL function:  dbMaskOut
+        lives in SVN at: kroot/util/slitmask/xfer2keck/tcl
+        dbMaskOut is the same Tcl program used by the DEIMOS computers
+        When DEIMOS takes exposures it appends these FITS tables after the
+        image HDUs.
 
-    From time immoral the UCO/Lick web server just invoked dbMaskOut
-
-    dbMaskOut is the same Tcl program used by the DEIMOS computers
-
-    After the summit crew loads masks into DEIMOS the DEIMOS computers
-    run dbMaskOut to create the multi-HDU FITS tables files.
-    When DEIMOS takes exposures it appends these FITS tables after the
-    image HDUs.  This means that the DEIMOS FITS files contain all of
-    the pixels from the CCDs and all of the information about the
-    slitmask through which the light travelled.
-
-    Note that since the 2010 detector upgrade LRIS has been running
-    exactly the same code as DEIMOS, so LRIS could also append the
-    slitmask information to its FITS images, but Keck did not allow
-    that code to be turned on.
-
-    So this has always been just a wrapper to invoke dbMaskOut.
-
-    The original dbMaskOut code was an unconsidered hack of a hack.
-    During the 2023 mask transfer project from UCO/Lick to Keck
-    inspection of this old code seemed a lot like taking a cat to the
-    vet and finding all the tissues of a trilobite inside.  Rather
-    than perpetuate all of the confusing and useless aspects of the
-    old code the new dbMaskOut code only does what is necessary.
+    :param blue_id: <str> the integer of the blueprint id
+    :param exec_dir: <str> path to the tcl dbMaskOut function.
+    :param out_dir: <str> path to output location.
 
     :return:
-
-        mask_fits_filename
-
-            Should be the multi-HDU FITS file describing mask with bluid.
+        mask_fits_filename <str>
+            Should be the multi-HDU FITS file describing mask with blue_id.
             DEIMOS deiccd dispatcher appends this to FITS image files.
             This code proceeds to convert this to G-code for the CNC mill.
 
-        mask_ali_filename
-            Should be the file describing alignment hole locations on the mask.
-            We believe something in DEIMOS and LRIS obs setup software
-            uses this to refine telescope pointing to align the mask on sky.
-            See comments in dbMaskOut for details about how DEIMOS works.
-            ** this means that the Slit-Alignment Tool (SAT) uses this file.
-
-    :rtype: <str>
+        mask_ali_filename <str>
+            filename of file describing alignment hole locations on the mask.
+            DEIMOS and LRIS SAT (slitmask alignment tool) uses this to refine
+            telescope pointing to align the mask on sky.
     """
-    # despite the 2023 rewrite for PostgreSQL the dbMaskOut Tcl code
-    # still retains some of its blithering to stdout and stderr
-    # and we expect that sometimes those outputs will be useful
-    db_mask_out = f"/tmp/dbMaskOut.{bluid}.out"
-    db_mask_err = f"/tmp/dbMaskOut.{bluid}.err"
+    log = log_fun.get_log()
+
+    # keep track of any output from the tcl dbMaskOut
+    db_mask_out = f"{KROOT}/var/dbMaskOut/log/dbMaskOut.{blue_id}.out"
+    db_mask_err = f"{KROOT}/var/dbMaskOut/log/dbMaskOut.{blue_id}.err"
+
     stdout_file = open(db_mask_out, 'w')
     stderr_file = open(db_mask_err, 'w')
 
-    # TODO update the path
-    # the 2023 version of dbMaskOut is in ../tcl
-    # when we last checked that Makefile has BINSUB = maskpgtcl
-    # dbMaskOut = "@RELDIR@/bin/maskpgtcl/dbMaskOut"
-    abs_path = path.abspath(path.dirname(__file__))
-    dbMaskOut = f"{abs_path}/dbMaskOut/dbMaskOut"
+    # path to the dbMaskOut tcl executable
+    dbMaskOut = f"{exec_dir}/dbMaskOut"
 
     # we are going to use subprocess.call even if we are python3
-    status = subprocess.call([dbMaskOut, f"{bluid}"], stdout=stdout_file,
+    status = subprocess.call([dbMaskOut, f"{blue_id}"], stdout=stdout_file,
                              stderr=stderr_file)
+
+    # if dbMaskOut failed
     if status != 0:
-        log.error(f"{dbMaskOut} failed: see stdout {db_mask_out} and stderr {db_mask_err}")
+        log.error(f"{dbMaskOut} failed: see output {db_mask_out} {db_mask_err}")
         return None, None
 
     # we expect that dbMaskOut has created files with these names
-    dbMaskOutD = "@RELDIR@/var/dbMaskOut"
-    maskfits = f"{dbMaskOutD}/Mask.{bluid}.fits"
-    aliout = f"{dbMaskOutD}/Mask.{bluid}.ali"
+    maskfits = f"{out_dir}/Mask.{blue_id}.fits"
+    aliout = f"{out_dir}/Mask.{blue_id}.ali"
 
     return maskfits, aliout
 
 ################################################
 
 
-def maskStatus(db, bluid, newstatus):
+def maskStatus(db, blue_id, newstatus):
     """
-    update the status of a blueprint
 
-    inputs:
-    db        database object which is already connected with suitable privs
-    bluid     primary key in MaskBlu
-    newstatus one of the above MaskBluStatus values
+    :param db: database connection object
+    :param blue_id: <str> the integer of the blueprint id
+    :param newstatus: <int> the integer representing mask status,  forgotten, etc.
 
-    outputs:
-    none
-
-    side effects:
-    MaskBlu with bluid gets
-      status          = newstatus
-      millseq         = null string
+    :return: <bool> True if the status was updated.
     """
     log = log_fun.get_log()
-    maskStatusUpdate = "update MaskBlu set status = %s where bluid = %s"
+
+    maskStatusUpdate = "update MaskBlu set status = %s where blue_id = %s"
 
     try:
-        db.cursor.execute(maskStatusUpdate, (newstatus, bluid))
+        db.cursor.execute(maskStatusUpdate, (newstatus, blue_id))
     except Exception as e:
         log.error(f"maskStatuUpdate failed: {db.cursor.query}: "
                   f"exception class {e.__class__.__name__}: {e}")
 
-        # need to return error information along with FAILURE
         return False
-    # end try
 
-    # develop debugging
-    log.info(f"updated bluid {bluid} new status {newstatus}")
+    log.info(f"updated blue_id {blue_id} new status {newstatus}")
 
-    # foo need to fix database create because null millseq is normal for new masks
-    newmillseq  = '  '
+    # TODO need to fix database create because null millseq is normal for new masks
+    newmillseq = '  '
 
-    maskMillseqUpdate = "update MaskBlu set millseq = %s where bluid = %s"
+    maskMillseqUpdate = "update MaskBlu set millseq = %s where blue_id = %s"
 
     try:
-        db.cursor.execute(maskMillseqUpdate, (newmillseq, bluid))
+        db.cursor.execute(maskMillseqUpdate, (newmillseq, blue_id))
     except Exception as e:
-        log.error(f"maskMillseqUpdate failed bluid {bluid}: {db.cursor.query}: "
+        log.error(f"maskMillseqUpdate failed blue_id {blue_id}: {db.cursor.query}: "
                   f"exception class {e.__class__.__name__}: {e}")
 
-        # need to return error information along with FAILURE
         return False
-    # end try
 
-    # develop debugging
-    log.info(f"bluid {bluid} new millseq {newmillseq}")
+    log.info(f"blue_id {blue_id} new millseq {newmillseq}")
 
     status, message = commitOrRollback(db)
 
     if status == 0:
         print("commitOrRollback failed: %s" % (message))
         return False
-    # end if
 
-    print("commitOrRollback worked, db should be changed")
-    return True
-
-# end def maskStatus()
-
-################################################
-
-
-def my_design(user_info, curse, desid):
-    """
-    Is the logged in user the Design Author or the Blueprint Observer?
-    This can decide whether a non-admin user may modify mask records.
-
-    Note that because this uses DesId it is possible that more than
-    one Blueprint was derived from this Design, and those Blueprints
-    might have different values of BluPId for different Observers.
-    Therefore this code is allowing a logged in user who is a
-    Blueprint Observer for one Blueprint with that DesId to modify
-    all other Blueprints with that DesId even if those other
-    Blueprints have different Blueprint Observers.
-
-    In actual practice the mask design tools never allowed for a
-    single Mask Design to be re-used to make different Mask Blueprints
-    that could be suitable for observing the same field at different
-    hour angles.  In actual practice the mask design tools create an
-    entirely separate Design for each Blueprint even if every slitlet
-    in the Design is the same.
-
-    There do exists some database records where one Design DesId is
-    found with more than one Blueprint, but almost all of those are
-    "permanent" "calibration" masks whose Author/Observer values
-    are mask admin users anyway.
-
-    """
-    if user_info.user_type == MASK_ADMIN:
-        return True
-
-    # curse = db_obj.cursor()
-    params = (desid, user_info.ob_id, desid, user_info.ob_id)
-    if not do_query('design_person', curse, params):
-        # error with query
-        return False
-
-    results = curse.fetchall()
-    len_results = len(results)
-
-    if len_results == 0:
-        # No, this is not my Design
-        return False
-
-    # Yes, this is my Design
     return True
 
 ################################################
@@ -221,10 +123,9 @@ def desid_to_bluid(design_id, curse):
     """
     Get the blue_id from the design_id.
 
-    :param design_id:
-    :type design_id:
-    :return:
-    :rtype:
+    :param design_id: <str> the integer of the design id
+
+    :return: <int> the integer of the blueprint id
     """
     if not do_query('design_to_blue', curse, (design_id,)):
         err = 'Database Error!'
@@ -237,15 +138,16 @@ def desid_to_bluid(design_id, curse):
 
     return True, blue_id_results[0]['bluid']
 
+################################################
+
 
 def bluid_to_desid(blue_id, curse):
     """
     Get the design_id from the blue_id.
 
-    :param blue_id:
-    :type blue_id:
-    :return:
-    :rtype:
+    :param blue_id: <str> the integer of the blueprint id
+
+    :return: <int> the integer of the design id
     """
     if not do_query('blue_to_design', curse, (blue_id,)):
         err = 'Database Error!'
@@ -258,8 +160,41 @@ def bluid_to_desid(blue_id, curse):
 
     return True, design_id_results[0]['desid']
 
+################################################
+
 
 def my_blueprint(user_info, db_obj, blue_id):
+    """
+    Is the logged in user the Blueprint Observer or Admin.
+
+    Note:
+        because this uses DesId it is possible that more than
+        one Blueprint was derived from this Design, and those Blueprints
+        might have different values of BluPId for different Observers.
+
+        Therefore this code is allowing a logged in user who is a
+        Blueprint Observer for one Blueprint with that DesId to modify
+        all other Blueprints with that DesId even if those other
+        Blueprints have different Blueprint Observers.
+
+        In actual practice the mask design tools never allowed for a
+        single Mask Design to be re-used to make different Mask Blueprints
+        that could be suitable for observing the same field at different
+        hour angles.  In actual practice the mask design tools create an
+        entirely separate Design for each Blueprint even if every slitlet
+        in the Design is the same.
+
+        There do exists some database records where one Design DesId is
+        found with more than one Blueprint, but almost all of those are
+        "permanent" "calibration" masks whose Author/Observer values
+        are mask admin users anyway.
+
+    :param user_info: <obj> The object containing the logged in user information
+    :param db_obj: <obj> the database object.
+    :param blue_id:<str> the integer of the blueprint id
+
+    :return: <bool> True if Blueprint Observer or Admin.
+    """
 
     if user_info.user_type == MASK_ADMIN:
         return True
@@ -278,19 +213,69 @@ def my_blueprint(user_info, db_obj, blue_id):
 
     return True
 
+################################################
+
+
+def my_design(user_info, curse, design_id):
+    """
+    Is the logged in user the Design Author or Admin.
+
+    Note:
+        because this uses DesId it is possible that more than
+        one Blueprint was derived from this Design, and those Blueprints
+        might have different values of BluPId for different Observers.
+
+        Therefore this code is allowing a logged in user who is a
+        Blueprint Observer for one Blueprint with that DesId to modify
+        all other Blueprints with that DesId even if those other
+        Blueprints have different Blueprint Observers.
+
+        In actual practice the mask design tools never allowed for a
+        single Mask Design to be re-used to make different Mask Blueprints
+        that could be suitable for observing the same field at different
+        hour angles.  In actual practice the mask design tools create an
+        entirely separate Design for each Blueprint even if every slitlet
+        in the Design is the same.
+
+        There do exists some database records where one Design DesId is
+        found with more than one Blueprint, but almost all of those are
+        "permanent" "calibration" masks whose Author/Observer values
+        are mask admin users anyway.
+
+    :param user_info: <obj> The object containing the logged in user information
+    :param curse: <psycopg2.extensions.cursor> the database cursor
+    :param design_id: <str> the integer of the design id
+
+    :return: <bool> True if Design Author or Admin.
+    """
+
+    if user_info.user_type == MASK_ADMIN:
+        return True
+
+    params = (design_id, user_info.ob_id, design_id, user_info.ob_id)
+    if not do_query('design_person', curse, params):
+        return False
+
+    results = curse.fetchall()
+    len_results = len(results)
+
+    if len_results == 0:
+        return False
+
+    return True
+
+################################################
+
 
 def my_blueprint_or_design(user_info, db_obj, blue_id):
     """
-    Using the Blue Id check if the bluprint in owned by the logged in user.
+    Using the Blue Id check if the bluprint is owned by the logged in user.
 
-    :param user_info:
-    :type user_info:
-    :param db_obj:
-    :type db_obj:
-    :param blue_id:
-    :type blue_id:
-    :return:
-    :rtype:
+    :param user_info: <obj> The object containing the logged in user information
+    :param db_obj: <obj> the database object.
+    :param blue_id:<str> the integer of the blueprint id
+
+    :return: <bool> True if Design Author,  Blueprint Observer,  or Admin.
     """
 
     if user_info.user_type == MASK_ADMIN:
@@ -319,6 +304,123 @@ def my_blueprint_or_design(user_info, db_obj, blue_id):
         return False
 
     return True
+
+################################################
+
+
+def mask_user_id(db_obj, user_email, sql_params):
+    """
+    Find the user OBID (mask user ID) from the email.  This is used in the
+    admin search (search by email address) and on mask validation during the
+    mask submission process.
+
+    :param db_obj: <obj> the database object.
+    :param user_email: <str> the user email address
+
+    :return: <int> the observer ID (keck ID or legacy mask user ID)
+             None - an error occurred and ID could be determined.
+
+    """
+    log = log_fun.get_log()
+
+    userQuery = ("select ObId from Observers where email ilike %s")
+
+    try:
+        db_obj.cursor.execute(userQuery, (user_email,))
+    except Exception as e:
+        log.error(f"{userQuery} failed: {db_obj.cursor.query}: "
+                  f"exception class {e.__class__.__name__}: {e}")
+        return None
+
+    results = db_obj.cursor.fetchall()
+    lenres = len(results)
+
+    # user_email is not in the Legacy Mask (UCO pre-2023) observer table
+    if lenres < 1:
+        # check the Keck Observer table,  and re-check UCO table with keck_id
+        mask_id = chk_keck_observers(db_obj, user_email, sql_params, log)
+        if not mask_id:
+            log.warning(f"{user_email} is not a registered mask user")
+            return None
+    # should not be possible - email in observers database should be unique.
+    elif lenres > 1:
+        log.error(f"db error: > 1 mask users with email {user_email}")
+        return None
+    else:
+        mask_id = results[0]['obid']
+
+    return mask_id
+
+
+def chk_keck_observers(psql_db_obj, user_email, sql_params, log):
+    """
+    Find the Mask ID,  get the observer Keck ID (keck observers table),  if
+    the email is associated with a Keck Observer,  use that ID to check the
+    legacy Mask IDs.
+
+    Mask ID is defined as any Mask ID in the Legacy Mask Observer table
+    (originally from UCO 2023).  If not in there,  the Keck ID is used.
+
+    Legacy Mask ID < 1000
+    Keck ID > 1000
+
+    :param psql_db_obj:
+    :type psql_db_obj:
+    :param user_email:
+    :type user_email:
+    :param sql_params:
+    :type sql_params:
+    :return:
+    :rtype:
+    """
+    query = "select * from observers where email = %s"
+    params = (user_email, )
+
+    num, results = do_sql_query(query, params, sql_params)
+    if num == 0 or 'Id' not in results[0]:
+        return None
+
+    mask_id = results[0]['Id']
+
+    userQuery = "select ObId from Observers where keckid = %s"
+
+    # check the mask database using the keck-id to look for a legacy mask ID.
+    try:
+        psql_db_obj.cursor.execute(userQuery, (mask_id,))
+    except Exception as e:
+        log.error(f"{userQuery} failed: {psql_db_obj.cursor.query}: "
+                  f"exception class {e.__class__.__name__}: {e}")
+        return None
+
+    results = psql_db_obj.cursor.fetchall()
+    lenres = len(results)
+
+    if lenres > 0:
+        mask_id = results[0]['obid']
+
+    return mask_id
+
+
+def do_sql_query(query, params, sql_params):
+    """
+    Performs a database query, assuming protection against SQL injection.
+    """
+    try:
+        db = 'keckOperations'
+        dbhost = sql_params['server']
+        user = sql_params['user']
+        password = sql_params['pwd']
+        conn = pymysql.connect(user=user, password=password, host=dbhost,
+                               database=db, autocommit=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        num = cursor.execute(query, params)
+
+        result = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return num, result
+    except Exception as e:
+        return 0, None
 
 
 ################################################
@@ -363,81 +465,3 @@ def my_blueprint_or_design(user_info, db_obj, blue_id):
 # # end def isThisMyMask()
 
 
-def MaskUserObId(db, useremail, log):
-    """
-    If we do know the e-mail address of a mask user and we need to
-    know the database primary key of that user.
-
-    The mask description FITS tables (MDF) files are created at sites
-    which do not have access to the database of registered mask users.
-    Therefore the MDF files transport user identity as strings which
-    should be valid e-mail addresses in the FITS table columns
-    MaskDesign.DesAuth and MaskBlu.BluObsvr
-
-    Furthermore, the software which ingests MDF files requires that
-    the values of MaskDesign.DesAuth and MaskBlu.BluObsvr be registered
-    as known users in the slitmask database.
-
-    Keck will have to rewrite the mask ingestion code so that it
-    checks the e-mail addresses in MDF files against the Keck PI login
-    database.
-
-    Keck will have to rewrite this query so that it looks for the
-    e-mail address in the Keck PI login database.
-
-    inputs:
-        db              database object
-                        already connected to PgSQL with suitable privs
-                        db.maskumail knows the logged-in slitmask user
-        useremail       an e-mail address which may be a registered mask user
-                        Note that this function exists in order to look up
-                        a mask user other than the logged-in user.
-
-    outputs:
-        obid = the ObserverId
-        or
-        None
-        For the original Sybase implementation and the PostgreSQL
-        scheme used during the 2023/2024 mask transfer project obid
-        means the primary key of the registered user corresponding to
-        useremail as found in table Observers.
-        Keck will have to rewrite this to return the primary key from
-        the table of people in the Keck PI login database.
-    """
-
-    userQuery = ("select ObId from Observers where email ilike %s")
-
-    try:
-        db.cursor.execute(userQuery, (useremail,) )
-    except Exception as e:
-        log.error(
-        "%s failed: %s: exception class %s: %s"
-        % ('userQuery', db.cursor.query, e.__class__.__name__, e) )
-        return None
-    # end try
-
-    results = db.cursor.fetchall()
-
-    lenres      = len(results)
-
-    if lenres < 1:
-        # lenres < 1 means there is no Observer with email useremail
-        msg     = ( "%s is not a registered mask user" % (useremail))
-        log.warning( msg )
-        # need to print/return other information
-        print(msg)
-        return None
-    elif lenres > 1:
-        # lenres > 1, this should be impossible according to our rules
-        # because in table Observers field e-mail must be unique.
-        msg     = ("db error: %s > 1 mask users with email %s" % (useremail))
-        log.error( msg )
-        # need to print/return other information
-        print(msg)
-        return None
-    # end if
-
-    # lenres == 1, row is in results[0]
-    return results[0]['obid']
-
-# end def MaskUserObId()

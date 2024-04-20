@@ -1,3 +1,4 @@
+import sys
 import json
 import requests
 import configparser
@@ -52,7 +53,6 @@ def get_userinfo():
     #TODO move the URL out
     url = 'https://www3build.keck.hawaii.edu/userinfo/odb-cookie'
     response = requests.get(url, cookies=cooked, verify=False)
-    print(f'userinfo: {response.content}')
     import json
 
     userinfo = json.loads(response.content.decode('utf-8'))
@@ -117,7 +117,6 @@ def get_obid_column(curse):
     iter = 0
     for obs_dict in observer_table:
         iter += 1
-        print(obs_dict)
         if iter > 10:
             break
 
@@ -143,7 +142,6 @@ def do_query(query_name, curse, query_params, query=None):
     if not query:
         query = get_query(query_name)
 
-    print(query, query_params)
     try:
         curse.execute(query, query_params)
     except Exception as e:
@@ -318,7 +316,6 @@ def generate_svg_plot(user_info, info_results, slit_results, bluid):
     bluname = info_results[0]['bluname']
     guiname = info_results[0]['guiname']
 
-    print('huh?', instrume, bluid, bluname, guiname)
     gnusvg = Gnuplot5()
 
     gnusvg.OpenSVG(str(user_info.keck_id))
@@ -423,7 +420,6 @@ def order_mill_queue(results):
 
 
 def order_inventory(results):
-    print(results)
     new_keys_map = [
         ('desid', 'Design-ID'), ('despid', 'Design-PI-ID'), #('uid', 'User ID'),
         ('projname', 'Project-Name'), ('desname', 'Design-Name'),
@@ -461,7 +457,6 @@ def order_cal_inventory(results):
 def order_search_results(results):
     # "d.desid, d.desname, d.desdate, projname, ra_pnt, dec_pnt, " \
     # "radepnt, o.keckid, o.firstnm, o.lastnm, o.email, o.institution"
-    print(results)
     new_keys_map = [
         ('desid', 'Design-ID'), ('desname', 'Design-Name'), ('projname', 'Project-Name'),
         ('ra_pnt', 'RA'), ('dec_pnt', 'Declination'), ('radepnt', 'System'),
