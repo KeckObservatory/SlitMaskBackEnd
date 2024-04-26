@@ -687,86 +687,222 @@ import string   # string.ascii_letters string.digits
 
 ########################################################################
 
+
 def main():
 
-    # test against a bunch of real and fake MDF
-    testlist = [
-        # 'Mask.16303.fits', 'Mask.14423.fits', 'mask1.file3.fits'
-        'mask1.file3.fits'
-    ]
 
     ################################################
 
     # sibling file that defines our database object
-    # import wspgconn
-    from wspgconn import WsPgConn
-    import general_utils as gen_utils
-    import argparse
-    from os import path
+    import wspgconn
 
     # python module to prompt and get passwords
-    # import getpass
+    import getpass
 
-    keck_id = '1231'
-    user_pw='NQCD869DBIHVO0J1XCFU8MLC'
+    if len(sys.argv) != 2:
+        # command line must provide mask user e-mail
+        print('usage: %s [mask user e-mail]' % (sys.argv[0]))
+        sys.exit(1)
+    else:
+        # see if we can run as a known mask user
+        maskumail       = sys.argv[1]
+        maskupass       = getpass.getpass(prompt='mask password for %s: ' % maskumail, stream=None)
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('config_file', help='Configuration File')
-    args = parser.parse_args()
-    APP_PATH = path.abspath(path.dirname(__file__))
-    config, log = gen_utils.start_up(APP_PATH, config_name=args.config_file)
+        # create our database object
+        db              = wspgconn.wsPgConn()
 
-    # user_email, user_pw = gen_utils.get_info()
-    db = WsPgConn(keck_id, user_pw)
-
-    # if len(sys.argv) > 2:
-    #     # command line may provide mask user e-mail
-    #     print('usage: %s [mask user e-mail]' % (sys.argv[0]))
-    #     sys.exit(1)
-    # elif len(sys.argv) < 2:
-    #     print('running as user with no insert privs')
-    #     # in test mode we start off with no connection to database
-    #     db = None
-    # else:
-    #     # see if we can run as a known mask user
-    #     maskumail = sys.argv[1]
-    #     maskupass = getpass.getpass(prompt='mask password for %s: ' % maskumail, stream=None)
-    #
-    #     # create our database object
-    #     db = wspgconn.wsPgConn()
-    #
-    #     # try to connect to the database
-    #     if db.sconnect(maskumail, maskupass):
-    #         print("connect to database as mask user %s privs %s\n" % (db.dbuser, db.privs))
-    #     else:
-    #         print("failed to connect to database as mask user %s\n" % (maskumail) )
-    #         sys.exit(1)
-    #     # end if not connect
+        # try to connect to the database
+        if db.sconnect(maskumail, maskupass):
+            print("connect to database as mask user %s privs %s\n" % (db.dbuser, db.privs))
+        else:
+            print("failed to connect to database as mask user %s\n" % (maskumail) )
+            sys.exit(1)
+        # end if not connect
 
     # end if len argv
 
     ################################################
 
-    for file in testlist:
-        print(f'file {file}')
-        # we need a new set of maps for each MDF
-        # because the primary keys in each MDF
-        # all start from 0 or 1
-        maps = mdf2dbmaps()
-        print(f'maps {maps}, db {db}')
-        db.db_connect()
+    # test against a bunch of real and fake MDF
+    testlist = [
+    #'/tmp/mask24.fits',        Keck experimental new DSIMULATOR failed submission
+    'sla.fits',
+    'not.fits',
+    'foo.bar',
+    'foo.fits',
+    'm1142szp.fits',
+    'j1058_mask_final3.fits',
+    'j1058_mask_final3.fitsy',
+    ]
 
-        status, err_report = ingestMDF(file, db, maps)
+    for mdf in testlist:
 
-        msg = f'status: {status}, errors: {err_report}'
-        log.info(msg)
-        print(msg)
+        print("file %s beg" % (mdf,))
 
-        del maps
+        result,bludict  = ingestMDF(mdf, db)
+        if len(bludict) == 1:
+            print("ingestMDF '%s' end result %s BluId %s" % (mdf,result,bludict[list(bludict)[0]]))
+        else:
+            print("ingestMDF '%s' end result %s len(bludict) %s bludict %s" % (mdf,result,len(bludict),bludict))
+        # end if len(bludict)
 
-    # end for file
+    # end for mdf
+
+    ################################################
+
+    # test ingest an LRIS file which old code said has bad slits
+    # so we have to invoke lsc2df
+    # j0100_mask1.file3 -> Masks/georgeb@ucr.edu.1697827003/j0100_mask1.file3
+    file3       = 'j0100_mask1.file3'
+    email       = 'georgeb@ucr.edu'
+    date_use    = '2024-05-01'
+    print("convertLRIStoMDF '%s' beg" % (file3))
+    result,mdf  = convertLRIStoMDF(file3, email, date_use)
+    print("convertLRIStoMDF '%s' end result %s mdf '%s'" % (file3,result,mdf))
+    if mdf != '':
+        print("ingestMDF '%s' beg" % (mdf,))
+        result,bludict  = ingestMDF(mdf, db)
+        if len(bludict) == 1:
+            print("ingestMDF '%s' end result %s BluId %s" % (mdf,result,bludict[list(bludict)[0]]))
+            bluid       = bludict[list(bludict)[0]]
+
+            # retrieve mask with bluid from database and put that into a Mask Design FITS file
+            # run acpncc which reads the MDF and produces gcode for the CNC mill
+            # acpncc also produces a .f2n log file with info about bad slitlets
+            retval,gcode,f2nlog     = millFile( db, bluid )
+
+            print("%s millFile(bluid=%s) gcode '%s' f2nlog '%s'"
+            % (retword[retval], bluid, gcode, f2nlog))
+
+            # parse the .f2n file from acpncc to find unmillable slitlets
+            status,badslitlist,badtextdict,badvertdict  = parseF2n(f2nlog)
+            print("bluid %s f2n bad slits %s" % (bluid, badslitlist))
+            # check the alignment boxes for problems
+            status,badslitlist,badtextdict,badgeomdict  = checkAlign(db, bluid)
+            print("bluid %s align bad slits %s" % (bluid, badslitlist))
+
+        else:
+            print("ingestMDF '%s' end result %s len(bludict) %s bludict %s" % (mdf,result,len(bludict),bludict))
+        # end if len(bludict)
+    # end if mdf
 
 
+    ################################################
+
+    # test ingest a DEIMOS file which old code said has bad slits
+    # uno1r3.fits -> Masks/william.cerny@yale.edu.1705008826/uno1r3.fits
+    mdf = 'uno1r3.fitsy'
+    print("ingestMDF '%s' beg" % (mdf,))
+    result,bludict  = ingestMDF(mdf, db)
+    if len(bludict) == 1:
+        print("ingestMDF '%s' end result %s BluId %s" % (mdf,result,bludict[list(bludict)[0]]))
+        bluid   = bludict[list(bludict)[0]]
+
+        # retrieve mask with bluid from database and put that into a Mask Design FITS file
+        # run acpncc which reads the MDF and produces gcode for the CNC mill
+        # acpncc also produces a .f2n log file with info about bad slitlets
+        retval,gcode,f2nlog     = millFile( db, bluid )
+
+        print("%s millFile(bluid=%s) gcode '%s' f2nlog '%s'"
+        % (retword[retval], bluid, gcode, f2nlog))
+
+        # parse the .f2n file from acpncc to find unmillable slitlets
+        status,badslitlist,badtextdict,badvertdict  = parseF2n(f2nlog)
+        print("bluid %s f2n bad slits %s" % (bluid, badslitlist))
+        # check the alignment boxes for problems
+        status,badslitlist,badtextdict,badgeomdict  = checkAlign(db, bluid)
+        print("bluid %s align bad slits %s" % (bluid, badslitlist))
+
+    else:
+        print("ingestMDF '%s' end result %s len(bludict) %s bludict %s" % (mdf,result,len(bludict),bludict))
+    # end if len(bludict)
+
+    ################################################
+
+# end def main()
+
+#
+#
+# def main():
+#
+#     # test against a bunch of real and fake MDF
+#     testlist = [
+#         # 'Mask.16303.fits', 'Mask.14423.fits', 'mask1.file3.fits'
+#         'mask1.file3.fits'
+#     ]
+#
+#     ################################################
+#
+#     # sibling file that defines our database object
+#     # import wspgconn
+#     from wspgconn import WsPgConn
+#     import general_utils as gen_utils
+#     import argparse
+#     from os import path
+#
+#     # python module to prompt and get passwords
+#     # import getpass
+#
+#     keck_id = '1231'
+#     user_pw='NQCD869DBIHVO0J1XCFU8MLC'
+#
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument('config_file', help='Configuration File')
+#     args = parser.parse_args()
+#     APP_PATH = path.abspath(path.dirname(__file__))
+#     config, log = gen_utils.start_up(APP_PATH, config_name=args.config_file)
+#
+#     # user_email, user_pw = gen_utils.get_info()
+#     db = WsPgConn(keck_id, user_pw)
+#
+#     # if len(sys.argv) > 2:
+#     #     # command line may provide mask user e-mail
+#     #     print('usage: %s [mask user e-mail]' % (sys.argv[0]))
+#     #     sys.exit(1)
+#     # elif len(sys.argv) < 2:
+#     #     print('running as user with no insert privs')
+#     #     # in test mode we start off with no connection to database
+#     #     db = None
+#     # else:
+#     #     # see if we can run as a known mask user
+#     #     maskumail = sys.argv[1]
+#     #     maskupass = getpass.getpass(prompt='mask password for %s: ' % maskumail, stream=None)
+#     #
+#     #     # create our database object
+#     #     db = wspgconn.wsPgConn()
+#     #
+#     #     # try to connect to the database
+#     #     if db.sconnect(maskumail, maskupass):
+#     #         print("connect to database as mask user %s privs %s\n" % (db.dbuser, db.privs))
+#     #     else:
+#     #         print("failed to connect to database as mask user %s\n" % (maskumail) )
+#     #         sys.exit(1)
+#     #     # end if not connect
+#
+#     # end if len argv
+#
+#     ################################################
+#
+#     for file in testlist:
+#         print(f'file {file}')
+#         # we need a new set of maps for each MDF
+#         # because the primary keys in each MDF
+#         # all start from 0 or 1
+#         maps = mdf2dbmaps()
+#         print(f'maps {maps}, db {db}')
+#         db.db_connect()
+#
+#         status, err_report = ingestMDF(file, db, maps)
+#
+#         msg = f'status: {status}, errors: {err_report}'
+#         log.info(msg)
+#         print(msg)
+#
+#         del maps
+#
+#     # end for file
+#
+#
 
 
 # end def main()

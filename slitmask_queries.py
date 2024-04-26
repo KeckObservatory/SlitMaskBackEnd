@@ -24,7 +24,12 @@ ownership_queries = {
     "blue_to_design": "SELECT desid FROM maskblu WHERE bluid = %s",
 
     # used to get all the < yr 2024 account obids,  > yr 2024 accounts obid=keckid
-    "obid_column": "SELECT obid, keckid FROM observers"
+    "obid_column": "SELECT obid, keckid FROM observers",
+
+    # used to find emails
+    "blue_pi": "SELECT blupid FROM maskblu WHERE bluid = %s",
+    "design_pi": "SELECT despid FROM maskdesign WHERE desid = %s",
+    "pi_keck_id": "SELECT keckid FROM observers WHERE obid = %s",
 }
 
 
@@ -181,7 +186,7 @@ admin_queries = {
         d.INSTRUME, m.MaskId
         """,
 
-
+    "remill_set_date": "UPDATE MaskBlu SET date_use = TIMESTAMP %s WHERE bluid = %s",
 
     "mask_delete": "DELETE FROM Mask WHERE MaskId = %s",
 

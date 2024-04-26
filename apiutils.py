@@ -1,9 +1,13 @@
 import sys
+import smtplib
 import datetime
 import subprocess
 import pymysql.cursors
 
 from os import path
+from email.utils import formatdate
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 from general_utils import commitOrRollback
 import logger_utils as log_fun
@@ -81,29 +85,27 @@ def maskStatus(db, blue_id, newstatus):
     """
     log = log_fun.get_log()
 
-    maskStatusUpdate = "update MaskBlu set status = %s where blue_id = %s"
+    maskStatusUpdate = "update MaskBlu set status = %s where bluid = %s"
 
     try:
         db.cursor.execute(maskStatusUpdate, (newstatus, blue_id))
     except Exception as e:
         log.error(f"maskStatuUpdate failed: {db.cursor.query}: "
                   f"exception class {e.__class__.__name__}: {e}")
-
         return False
 
     log.info(f"updated blue_id {blue_id} new status {newstatus}")
 
-    # TODO need to fix database create because null millseq is normal for new masks
+    # TODO from Steve -- need to fix database create because null millseq is normal for new masks
     newmillseq = '  '
 
-    maskMillseqUpdate = "update MaskBlu set millseq = %s where blue_id = %s"
+    maskMillseqUpdate = "update MaskBlu set millseq = %s where bluid = %s"
 
     try:
         db.cursor.execute(maskMillseqUpdate, (newmillseq, blue_id))
     except Exception as e:
         log.error(f"maskMillseqUpdate failed blue_id {blue_id}: {db.cursor.query}: "
                   f"exception class {e.__class__.__name__}: {e}")
-
         return False
 
     log.info(f"blue_id {blue_id} new millseq {newmillseq}")
@@ -111,7 +113,7 @@ def maskStatus(db, blue_id, newstatus):
     status, message = commitOrRollback(db)
 
     if status == 0:
-        print("commitOrRollback failed: %s" % (message))
+        log.warning("commitOrRollback failed: %s" % (message))
         return False
 
     return True
@@ -323,7 +325,7 @@ def mask_user_id(db_obj, user_email, sql_params):
     """
     log = log_fun.get_log()
 
-    userQuery = ("select ObId from Observers where email ilike %s")
+    userQuery = "select ObId from Observers where email ilike %s"
 
     try:
         db_obj.cursor.execute(userQuery, (user_email,))
@@ -421,6 +423,109 @@ def do_sql_query(query, params, sql_params):
         return num, result
     except Exception as e:
         return 0, None
+
+
+def send_email(email_msg, email_info, subject):
+    """
+    Send an email, logs the email address of each email sent.
+
+    :param email_msg: <str> the text to include in body of the email
+    :param email_info: <dict> the email information: to_list, server, from
+    :param subject: <str> the email subject
+
+    :return: None
+    """
+    """
+    Send email with message to email.
+    """
+    log = log_fun.get_log()
+
+    html_msg = f"""
+        <html>
+            <body>
+                <p>Information regarding the Keck Slitmask Process:</p>
+                <pre>{email_msg}</pre>
+            </body>
+        </html>
+
+    """
+
+    for email_address in email_info['to_list']:
+        msg = MIMEMultipart()
+        msg['To'] = email_address
+        msg['From'] = email_info['from']
+        msg['Date'] = formatdate(localtime=True)
+        msg['Subject'] = subject
+
+        msg.attach(MIMEText(html_msg, 'html'))
+
+        server = smtplib.SMTP(email_info['server'])
+        server.sendmail(email_info['from'], email_address, msg.as_string())
+        server.quit()
+
+        log.info(f"Email sent to: {email_address}")
+
+
+def get_design_owner_emails(db_obj, blue_id, design_id, sql_params):
+    """
+    Compile a list of the emails associated with a mask.
+
+    :param db_obj: <obj> the psql database object.
+    :param blue_id: <int> the mask blueprint ID.
+    :param design_id: <int> the mask design ID.
+    :param sql_params: <dict> the sql server parameters
+
+    :return: <list> a list of emails as strings
+    """
+
+    email_list = []
+    ids = {'blue_pi': None, 'design_pi': None}
+    curse = db_obj.get_dict_curse()
+
+    # check the design id (desid) against despid
+    if not do_query('blue_pi', curse, (blue_id, )):
+        return False
+
+    results = curse.fetchall()
+    if results and results[0]:
+        ids['blue_pi'] = results[0][0]
+
+    if not design_id:
+        if not do_query('blue_to_design', curse, (blue_id,)):
+            return False
+        results = curse.fetchall()
+        if results and results[0]:
+            design_id = results[0][0]
+
+    if not do_query('design_pi', curse, (design_id, )):
+        return False
+
+    results = curse.fetchall()
+    if results and results[0]:
+        ids['design_pi'] = results[0][0]
+
+    for pi_id in ids.values():
+        # get the keck_id if the id is obid in the legacy UCO table
+        if pi_id < 1000:
+            if not do_query('pi_keck_id', curse, (pi_id,)):
+                return False
+            results = curse.fetchall()
+            if results and results[0]:
+                pi_id = results[0][0]
+            else:
+                continue
+
+        query = "select email from observers where Id=%s"
+        params = (pi_id, )
+
+        num, results = do_sql_query(query, params, sql_params)
+        if num == 0 or 'Email' not in results[0]:
+            print('email unknown')
+            continue
+
+        email_list.append(results[0]['Email'])
+
+    return email_list
 
 
 ################################################
