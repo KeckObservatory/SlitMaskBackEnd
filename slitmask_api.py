@@ -16,7 +16,7 @@ import ingest_fun
 import apiutils as utils
 import bad_slits as bad_slits
 import general_utils as gen_utils
-import admin_query_utils as search_utils
+import admin_search_utils as search_utils
 
 from general_utils import do_query, is_admin
 from wspgconn import WsPgConn
@@ -417,7 +417,7 @@ def forget_mask():
 
     api2_3.py - def forgetBlueprint(db, bluid)
 
-    :return: <str> a message regarding the success of failure of the extenstion.
+    :return: <str> a message regarding the success of failure of the extension.
     """
     db_obj, user_info = init_api()
     if not user_info:
@@ -742,11 +742,15 @@ def admin_search():
         return create_response(success=0, err='Unauthorized', stat=401)
 
     # get the query based on the search options
-    query, query_args = search_utils.admin_search(search_options, db_obj, SQL_PARAMS)
+    query_dict = search_utils.admin_search(search_options, db_obj, SQL_PARAMS)
+    if query_dict['msg']:
+        print('here', search_options)
+        results = [{'results': query_dict['msg']}]
+        return create_response(success=1, data=results)
 
     curse = db_obj.get_dict_curse()
 
-    if not do_query(None, curse, query_args, query=query):
+    if not do_query(None, curse, query_dict['query_args'], query=query_dict['query']):
         return create_response(success=0, err='Database Error!', stat=503)
 
     results = gen_utils.get_dict_result(curse)
