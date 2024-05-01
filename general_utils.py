@@ -63,7 +63,7 @@ def get_userinfo():
     return userinfo
 
 
-def get_observer_dict(curse):
+def get_observer_dict(curse, sql_params):
     """
     Get the MySQL observer table and merge this with the obid in the slitmask
     PostGreSQL observer table.  The slitmask observer table is no longer
@@ -75,7 +75,7 @@ def get_observer_dict(curse):
         Id (keck ID), Firstname, Lastname, Email, Affiliation, AllocInst
     :rtype:
     """
-    keck_observers_mysql = query_observers()
+    keck_observers_mysql = query_observers(sql_params)
 
     observer_table = []
     if keck_observers_mysql:
@@ -102,7 +102,7 @@ def get_observer_dict(curse):
     return observer_table
 
 
-def get_obid_column(curse):
+def get_obid_column(curse, sql_params):
     """
     Get a list the represents the OBID column from the combine mysql observer
     table and the psql observers table.
@@ -113,7 +113,7 @@ def get_obid_column(curse):
     :return: list of slitmask observer ids
     :rtype: list
     """
-    observer_table = get_observer_dict(curse)
+    observer_table = get_observer_dict(curse, sql_params)
     iter = 0
     for obs_dict in observer_table:
         iter += 1

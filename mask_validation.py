@@ -83,7 +83,7 @@ class MaskValidation:
         # This code supposes that FITS Date_Use values are '%Y-%m-%d'
         mask_use_date = self.hdul['MaskBlu'].data['Date_Use'][0]
         mask_date_use_dt = datetime.strptime(mask_use_date, '%Y-%m-%d')
-        now = datetime.now()
+
         now = datetime.strptime('2020-01-01', '%Y-%m-%d')
         nowiso = datetime.strftime(now, '%Y-%m-%d')
 

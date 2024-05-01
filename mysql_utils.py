@@ -1,14 +1,20 @@
 import pymysql
 from pymysql.cursors import DictCursor
 
-def connect_to_mysql():
+
+def connect_to_mysql(sql_params):
+    db = sql_params['db']
+    dbhost = sql_params['server']
+    user = sql_params['user']
+    password = sql_params['pwd']
+
     try:
         connection = pymysql.connect(
-            host="mysqlserver.keck.hawaii.edu",
+            host=dbhost,
             port=0,
-            user="keckOps",
-            password="spOkcek",
-            database="keckOperations"
+            user=user,
+            password=password,
+            database=db
         )
         return connection
     except pymysql.Error as e:
@@ -16,8 +22,8 @@ def connect_to_mysql():
         return None
 
 
-def query_observers():
-    connection = connect_to_mysql()
+def query_observers(sql_params):
+    connection = connect_to_mysql(sql_params)
     observers_data = None
     try:
         with connection.cursor(cursor=DictCursor) as mysql_cursor:

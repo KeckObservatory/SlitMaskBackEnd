@@ -34,6 +34,13 @@ ownership_queries = {
 
 
 retrieval_queries = {
+    "barcode_to_pointing": f"""
+        SELECT mb.bluid, mb.desid, mb.guiname, md.ra_pnt, md.dec_pnt, md.equinpnt, md.pa_pnt
+        FROM maskblu mb 
+        JOIN mask m ON mb.bluid = m.bluid 
+        JOIN maskdesign md ON mb.desid = md.desid 
+        WHERE m.maskid = %s;
+                    """,
     "mill": f"""
         SELECT b.BluId, b.status, b.Date_Use, b.stamp, b.GUIname,
                b.millseq, d.desid, d.desnslit, d.desname, d.instrume
