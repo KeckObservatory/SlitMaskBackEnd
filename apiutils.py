@@ -12,7 +12,7 @@ from email.mime.multipart import MIMEMultipart
 from general_utils import commitOrRollback
 import logger_utils as log_fun
 
-from general_utils import do_query, get_dict_result
+from general_utils import do_query, get_dict_result, get_keck_obs_info
 from mask_constants import MASK_ADMIN
 
 
@@ -310,7 +310,7 @@ def my_blueprint_or_design(user_info, db_obj, blue_id):
 ################################################
 
 
-def mask_user_id(db_obj, user_email, sql_params):
+def mask_user_id(db_obj, user_email, obs_info_url):
     """
     Find the user OBID (mask user ID) from the email.  This is used in the
     admin search (search by email address) and on mask validation during the
@@ -340,7 +340,7 @@ def mask_user_id(db_obj, user_email, sql_params):
     # user_email is not in the Legacy Mask (UCO pre-2023) observer table
     if lenres < 1:
         # check the Keck Observer table,  and re-check UCO table with keck_id
-        mask_id = chk_keck_observers(db_obj, user_email, sql_params, log)
+        mask_id = chk_keck_observers(db_obj, user_email, obs_info_url, log)
         if not mask_id:
             log.warning(f"{user_email} is not a registered mask user")
             return None
@@ -354,7 +354,7 @@ def mask_user_id(db_obj, user_email, sql_params):
     return mask_id
 
 
-def chk_keck_observers(psql_db_obj, user_email, sql_params, log):
+def chk_keck_observers(psql_db_obj, user_email, obs_info_url, log):
     """
     Find the Mask ID,  get the observer Keck ID (keck observers table),  if
     the email is associated with a Keck Observer,  use that ID to check the
@@ -370,16 +370,16 @@ def chk_keck_observers(psql_db_obj, user_email, sql_params, log):
     :type psql_db_obj:
     :param user_email:
     :type user_email:
-    :param sql_params:
-    :type sql_params:
+    :param obs_info_url:
+    :type obs_info_url:
     :return:
     :rtype:
     """
-    query = "select * from observers where email = %s"
-    params = (user_email, )
+    # query = "select * from observers where email = %s"
+    url_params = f"email={user_email}"
 
-    num, results = do_sql_query(query, params, sql_params)
-    if num == 0 or 'Id' not in results[0]:
+    results = get_keck_obs_info(url_params, obs_info_url)
+    if not results or 'Id' not in results[0]:
         return None
 
     mask_id = results[0]['Id']
@@ -403,26 +403,53 @@ def chk_keck_observers(psql_db_obj, user_email, sql_params, log):
     return mask_id
 
 
-def do_sql_query(query, params, sql_params):
-    """
-    Performs a database query, assuming protection against SQL injection.
-    """
-    try:
-        db = 'keckOperations'
-        dbhost = sql_params['server']
-        user = sql_params['user']
-        password = sql_params['pwd']
-        conn = pymysql.connect(user=user, password=password, host=dbhost,
-                               database=db, autocommit=True)
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
-        num = cursor.execute(query, params)
+# def get_keck_obs_info(url_params, obs_info_url):
+#     """
+#     Performs a database query, assuming protection against SQL injection.
+#     """
+#     import requests
+#     url = f'{obs_info_url}?{url_params}'
+#
+#     # Make a GET request to the API endpoint
+#     response = requests.get(url, verify=False)
+#     print(f'ur: {url}')
+#     # Check if the request was successful (status code 200)
+#     try:
+#         observer_dict = response.json()
+#         if not observer_dict:
+#             print(f'no observer {observer_dict}')
+#             return None
+#     except Exception as err:
+#         print(f'error accessing url: {url}')
+#
+#     print(observer_dict, type(observer_dict[0]))
+#
+#     return observer_dict
 
-        result = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return num, result
-    except Exception as e:
-        return 0, None
+    # if response.status_code == 200:
+    #     # Print the response data (assuming it's JSON)
+    #
+    #     print('mysql results', response.json())
+    # else:
+    #     # Print an error message if the request failed
+    #     print(f'Error: {response.status_code}')
+
+    # try:
+    #     db = 'keckOperations'
+    #     dbhost = sql_params['server']
+    #     user = sql_params['user']
+    #     password = sql_params['pwd']
+    #     conn = pymysql.connect(user=user, password=password, host=dbhost,
+    #                            database=db, autocommit=True)
+    #     cursor = conn.cursor(pymysql.cursors.DictCursor)
+    #     num = cursor.execute(query, params)
+    #
+    #     result = cursor.fetchall()
+    #     cursor.close()
+    #     conn.close()
+    #     return num, result
+    # except Exception as e:
+    #     return 0, None
 
 
 def send_email(email_msg, email_info, subject):
@@ -466,14 +493,14 @@ def send_email(email_msg, email_info, subject):
         log.info(f"Email sent to: {email_address}")
 
 
-def get_design_owner_emails(db_obj, blue_id, design_id, sql_params):
+def get_design_owner_emails(db_obj, blue_id, design_id, obs_info_url):
     """
     Compile a list of the emails associated with a mask.
 
     :param db_obj: <obj> the psql database object.
     :param blue_id: <int> the mask blueprint ID.
     :param design_id: <int> the mask design ID.
-    :param sql_params: <dict> the sql server parameters
+    :param obs_info_url: <dict> the sql server parameters
 
     :return: <list> a list of emails as strings
     """
@@ -515,11 +542,12 @@ def get_design_owner_emails(db_obj, blue_id, design_id, sql_params):
             else:
                 continue
 
-        query = "select email from observers where Id=%s"
-        params = (pi_id, )
+        # query = "select email from observers where Id=%s"
+        # params = (pi_id, )
+        url_params = f"obsid={pi_id}"
 
-        num, results = do_sql_query(query, params, sql_params)
-        if num == 0 or 'Email' not in results[0]:
+        results = get_keck_obs_info(url_params, obs_info_url)
+        if not results or 'Email' not in results[0]:
             print('email unknown')
             continue
 

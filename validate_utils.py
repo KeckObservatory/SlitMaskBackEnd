@@ -44,17 +44,17 @@ def mask_blue_rows(hdul, err_report, log):
 def set_design_pid(db, hdul, maps, sql_params):
     log = log_fun.get_log()
 
-    # TODO this should be associated to keck-id
-    # find e-mail address of mask designer
+    # parse design author e-mail address
     DesAuth = hdul['MaskDesign'].data['DesAuth'][0]
     DesAuthEmail = mbox2email(DesAuth)
 
     # get user
     design_pid = mask_user_id(db, DesAuthEmail, sql_params)
 
+    # required that the design author is a known email address (validated later)
     if design_pid is None:
-        msg = "no design pid"
-        log.error(msg)
+        log.error("no design pid")
+        maps.obid[DesAuth] = None
     else:
         maps.obid[DesAuth] = design_pid
 
@@ -64,52 +64,53 @@ def set_design_pid(db, hdul, maps, sql_params):
 def set_blue_pid(db, hdul, maps, sql_params):
     log = log_fun.get_log()
 
-    # TODO this needs to be keck-id
-    # find e-mail address of mask observer
+    # parse mask blue observer e-mail address
     BluObsvr = hdul['MaskBlu'].data['BluObsvr'][0]
     BluObsvrEmail = mbox2email(BluObsvr)
 
-    # we require that MaskBlu.BluObsvr contain a known user e-mail
+    # we require that MaskBlu.BluObsvr contain a known user e-mail (validated later)
     # find the primary key for that user
     BluPId = mask_user_id(db, BluObsvrEmail, sql_params)
     if BluPId is None:
-        msg = "no blue pid"
-        log.error(msg)
+        log.error("no blue pid")
+        maps.obid[BluObsvr] = None
     else:
         maps.obid[BluObsvr] = BluPId
 
     return maps
 
 
-def mbox2email(string):
+def mbox2email(email_str):
     """
-    string  # character string containing a mailbox (RFC 5322 page 45)
+    email_str  # character string containing a mailbox (RFC 5322 page 45)
 
     suppose that string contains an RFC 5322 compliant mailbox like
     Preferred Name <user@domain>
     if found return "user@domain"
     """
+    log = log_fun.get_log()
 
     # match most any sane e-mail address
     # but not all non-English possibilities
     # https://www.regular-expressions.info/email.html
     emailre = ".*<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>.*"
 
-    m = re.match(emailre, string)
+    m = re.match(emailre, email_str)
+
+    if not m:
+        return None
 
     glist = m.groups()
 
     if len(glist) == 1:
         return glist[0]
     elif len(glist) > 1:
-        print("more than one e-mail in %s" % (string))
+        log.error("more than one e-mail in %s" % (email_str))
         return None
-    else:
-        print("no e-mail in %s" % (string))
-        return None
-    # end if
 
-# end def mbox2email()
+    log.error("no e-mail in %s" % (email_str))
+    return None
+
 
 
 def valTableExt(hdul, extname):

@@ -66,17 +66,14 @@ class WsPgConn(PgConn):
         result = self.cursor.fetchone()
         self.disconnect()
 
-        user_type = self.determine_user_type(result, keck_id)
+        user_type = self.determine_user_type(result)
 
         return user_type
 
-    def determine_user_type(self, result, keck_id):
+    def determine_user_type(self, result):
         MASKADMIN = 1 << 0
         if result['privbits'] & MASKADMIN:
-            self.log.info(f"valid maskupass for keck_id "
-                          f"{keck_id} with admin privs")
             return MASK_ADMIN
         else:
-            self.log.info(f"user=maskuser for keck_id {keck_id}")
             return MASK_USER
 

@@ -12,14 +12,14 @@ from psycopg2.extras import Json
 from flask_cors import CORS
 from flask import Flask, request, jsonify, make_response, redirect, send_file, Response
 
-import ingest_fun
+import bad_slits
 import apiutils as utils
-import bad_slits as bad_slits
 import general_utils as gen_utils
 import admin_search_utils as search_utils
 
-from general_utils import do_query, is_admin
 from wspgconn import WsPgConn
+from ingest_fun import IngestFun
+from general_utils import do_query, is_admin
 from mask_constants import MASK_ADMIN, MASK_USER, MASK_LOGIN, RECENT_NDAYS, \
     USER_TYPE_STR, MaskBluStatusFORGOTTEN, MaskBluStatusMILLABLE, TOOL_DIAMETER
 
@@ -121,7 +121,7 @@ def init_api():
     :return: <db object, UserInfo object> the database and UserInfo objects.
             None, None - both as None on error.
     """
-    userinfo = gen_utils.get_userinfo()
+    userinfo = gen_utils.get_userinfo(OBS_INFO)
     if not userinfo:
         return None, None
 
@@ -146,7 +146,7 @@ def init_api():
 ################################################################################
 #    Masks in the instruments
 ################################################################################
-# TODO should this take instrument as a parameter?
+# TODO requires ssh-ing to lrisserver
 @app.route("/slitmask/mask-starlist", methods=['GET'])
 def deimos_mask_starlist():
     """
@@ -165,10 +165,10 @@ def deimos_mask_starlist():
 
             \
             metabase=# select * from mask where bluid=15764;
- maskid |   guiname    | shiptopid | shiptodate | tooldiam | toolangl | milltemp | ncagent | millid | bluid | millbypid |      milldate       | millqual | maskexp | stamp | millseq | status | shipid | bmf
---------+--------------+-----------+------------+----------+----------+----------+---------+--------+-------+-----------+---------------------+----------+---------+-------+---------+--------+--------+-----
-   4340 | westph_L     |           |            |          |          |          |         |      2 | 15764 |           | 2022-03-06 15:26:00 |          |       0 |       | YH      |      0 |      0 |   0
-(1 row)
+         maskid |   guiname    | shiptopid | shiptodate | tooldiam | toolangl | milltemp | ncagent | millid | bluid | millbypid |      milldate       | millqual | maskexp | stamp | millseq | status | shipid | bmf
+        --------+--------------+-----------+------------+----------+----------+----------+---------+--------+-------+-----------+---------------------+----------+---------+-------+---------+--------+--------+-----
+           4340 | westph_L     |           |            |          |          |          |         |      2 | 15764 |           | 2022-03-06 15:26:00 |          |       0 |       | YH      |      0 |      0 |   0
+        (1 row)
 
 
     get RA, Dec, Equinox
@@ -191,65 +191,68 @@ def deimos_mask_starlist():
     """
     
     bash-3.2$ barcodes | awk 'NR<2 || /long/ || /direct/ || /focus/ || /GOH/ || /INDEF/{next}{print substr( $3 , 9, 4)}'
-The authenticity of host 'deimos (128.171.136.181)' can't be established.
-RSA key fingerprint is 67:41:4d:55:4a:1e:93:2c:a0:74:88:c2:5c:83:56:2f.
-Are you sure you want to continue connecting (yes/no)? yes
-Warning: Permanently added 'deimos,128.171.136.181' (RSA) to the list of known hosts.
-kics@deimos's password: 
-4587
-4588
-4584
-4586
-4604
-4592
-
-    LRIS
-    bash-3.2$ less /kroot/rel/default/bin/barcodes
-
-    bash-3.2$ /kroot/rel/default/bin/configure slitname
-Value aliases for slitname:
-      long_1.0 = 2
-      long_1.5 = 4
-      co_n2.fi = 6
-      direct = 1
-      gws_d4ns = 9
-      RMJ1327B = 10
-      GOH_LRIS = 5
-      gn_n1.fi = 7
-      gn_n2.fi = 8
-      co_n1.fi = 3
-      
+        The authenticity of host 'deimos (128.171.136.181)' can't be established.
+        RSA key fingerprint is 67:41:4d:55:4a:1e:93:2c:a0:74:88:c2:5c:83:56:2f.
+        Are you sure you want to continue connecting (yes/no)? yes
+        Warning: Permanently added 'deimos,128.171.136.181' (RSA) to the list of known hosts.
+        kics@deimos's password: 
+        4587
+        4588
+        4584
+        4586
+        4604
+        4592
+        
+            LRIS
+            bash-3.2$ less /kroot/rel/default/bin/barcodes
+        
+            bash-3.2$ /kroot/rel/default/bin/configure slitname
+        Value aliases for slitname:
+              long_1.0 = 2
+              long_1.5 = 4
+              co_n2.fi = 6
+              direct = 1
+              gws_d4ns = 9
+              RMJ1327B = 10
+              GOH_LRIS = 5
+              gn_n1.fi = 7
+              gn_n2.fi = 8
+              co_n1.fi = 3
+              
       ----
       
       # get current masks in LRIS
       kics@lrisserver: /kroot/rel/default/bin/configure slitname
 
-Value aliases for slitname:
-      long_1.0 = 2
-      long_1.5 = 4
-      co_n2.fi = 6
-      direct = 1
-      gws_d4ns = 9
-      RMJ1327B = 10
-      GOH_LRIS = 5
-      gn_n1.fi = 7
-      gn_n2.fi = 8
-      co_n1.fi = 3
-      
-      
-bash-3.2$ barcodes
-kics@deimos's password: 
-pos=1 name=direct barcode=5920
-pos=2 name=long_1.0 barcode=5116
-pos=3 name=co_n1.fi barcode=4587
-pos=4 name=long_1.5 barcode=5117
-pos=5 name=GOH_LRIS barcode=1523
-pos=6 name=co_n2.fi barcode=4588
-pos=7 name=gn_n1.fi barcode=4584
-pos=8 name=gn_n2.fi barcode=4586
-pos=9 name=gws_d4ns barcode=4604
-pos=10 name=RMJ1327B barcode=4592
-      
+
+        nameval - binary
+        
+        Value aliases for slitname:
+              long_1.0 = 2
+              long_1.5 = 4
+              co_n2.fi = 6
+              direct = 1
+              gws_d4ns = 9
+              RMJ1327B = 10
+              GOH_LRIS = 5
+              gn_n1.fi = 7
+              gn_n2.fi = 8
+              co_n1.fi = 3
+              
+              
+        bash-3.2$ barcodes
+        kics@deimos's password: 
+        pos=1 name=direct barcode=5920
+        pos=2 name=long_1.0 barcode=5116
+        pos=3 name=co_n1.fi barcode=4587
+        pos=4 name=long_1.5 barcode=5117
+        pos=5 name=GOH_LRIS barcode=1523
+        pos=6 name=co_n2.fi barcode=4588
+        pos=7 name=gn_n1.fi barcode=4584
+        pos=8 name=gn_n2.fi barcode=4586
+        pos=9 name=gws_d4ns barcode=4604
+        pos=10 name=RMJ1327B barcode=4592
+              
     """
     import re
     import subprocess
@@ -371,27 +374,57 @@ def upload_mdf():
 
     :return: <str> a message regarding the success or failure of loading a mask.
     """
-
-    if 'maskFile' not in request.files:
+    # from astropy.io import fits  # Import FITS module
+    if 'mask-file' not in request.files:
         return create_response(success=0, err='No file part', stat=400)
 
-    mdf_file = request.files['maskFile']
+    mdf_file = request.files['mask-file']
+    print('FILENAME', mdf_file)
 
     if mdf_file.filename == '':
         return create_response(success=0, err='No selected MDF file', stat=400)
+
+    # mdf_file.save(f"{RAW_MDF_DIR}/{mdf_file.filename}")
 
     db_obj, user_info = init_api()
     if not db_obj:
         return redirect(LOGIN_URL)
 
-    maps = ingest_fun.mdf2dbmaps()
-    succeeded, err_report = ingest_fun.ingestMDF(user_info, mdf_file, db_obj, maps, SQL_PARAMS)
-    if succeeded:
-        return create_response(data={'msg': 'Mask was ingested into the database.'})
+    in_fun = IngestFun(user_info, db_obj, OBS_INFO)
+    mask_path = f"{RAW_MDF_DIR}/{mdf_file.filename}"
+    success, err_report = in_fun.ingestMDF(mdf_file, mask_path)
+    if not success:
+        errors = "\n".join([f"• {err}" for err in err_report])
+        return create_response(success=0, err=errors, stat=422)
 
-    errors = "\n".join([f"• {err}" for err in err_report])
+    # the MDF data map
+    maps = in_fun.get_maps()
 
-    return create_response(success=0, err=errors, stat=503)
+    blue_dict = maps.bluid
+    for blue_id in blue_dict.values():
+
+        # run dbmaskout inorder to get the mask_fits file for the gcode
+        maskout_files = dbmaskout_runner(blue_id)
+        if not maskout_files:
+            msg = "error creating the mask description file"
+            return create_response(success=0, err=f'{msg}', stat=401)
+
+        mask_fits_filename = maskout_files[0]
+
+        # create the mill / gcode files [gcodepath, f2nlogpath]
+        gcode_files = gcode_runner(blue_id, mask_fits_filename)
+        if not gcode_files or len(gcode_files) < 2:
+            create_response(success=0, stat=401, err=f'There was a problem checking for bad slits!')
+
+        # #####################################
+        bad_align_msgs = bad_slits.mark_bad_slits(db_obj, blue_id, gcode_files[1])
+        print('bad', bad_align_msgs)
+        return_data = {'msg': 'Mask was ingested into the database.'}
+        if bad_align_msgs:
+            return_data['warning'] = bad_align_msgs
+
+    return create_response(data=return_data)
+
 
 
 ################################################################################
@@ -471,7 +504,7 @@ def get_user_mask_inventory():
         return redirect(LOGIN_URL)
 
     curse = db_obj.get_dict_curse()
-    obid_col = gen_utils.get_obid_column(curse, SQL_PARAMS)
+    obid_col = gen_utils.get_obid_column(curse, OBS_INFO)
 
     if not do_query('user_inventory', curse, (obid_col, user_info.ob_id, user_info.ob_id)):
         committed, msg = gen_utils.commitOrRollback(db_obj)
@@ -766,63 +799,19 @@ def mill_files():
         return create_response(success=0, stat=401,
                                err=f'The mask blueprint ID, blue-id is required!')
 
-    exec_dir = f"{KROOT}/{DBMASKOUT_DIR}"
-    out_dir = f"{KROOT}/var/dbMaskOut/"
-
-    mask_fits_filename, mask_ali_filename = utils.generate_mask_descript(
-        blue_id, exec_dir, out_dir, KROOT
-    )
-
-    if not mask_fits_filename:
+    # run dbmaskout inorder to get the mask_fits file
+    maskout_files = dbmaskout_runner(blue_id)
+    if not maskout_files:
         msg = "error creating the mask description file"
         return create_response(success=0, err=f'{msg}', stat=401)
 
-    if not mask_fits_filename:
-        log.error(f"dbMaskOut failed: {out_dir} stdout BluId{blue_id}.out "
-                  f"and stderr BluId{blue_id}.err")
-        return FAILURE
+    mask_fits_filename = maskout_files[0]
 
-    # convert mask FITS file into G-code
-    ncmill_path = f"{KROOT}/{NCMILL_DIR}"
-    fits2ncc = f"{ncmill_path}/fits2ncc"
-
-    # redirect stdout and stderr into these files
-    STDOUT = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.out", 'w+')
-    STDERR = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.err", 'w')
-
-    # call external function fits2ncc
-    status = subprocess.call([fits2ncc, f"{TOOL_DIAMETER}", f"{mask_fits_filename}"],
-                             stdout=STDOUT, stderr=STDERR)
-
-    STDERR.close()
-
-    if status != 0:
-        log.error("%s failed: see stdout %s and stderr %s" % (fits2ncc, STDOUT, STDERR))
-        return create_response(success=0, stat=401,
-                               err=f'There was a problem creating the FITs MDF files!')
-
-    # fits2ncc stdout contains paths to files acpncc wrote
-    # (1) f2n log file and (2) CNC mill G-code file
-    f2nlogpath = ''
-    gcodepath = ''
-
-    STDOUT.seek(0)
-    for line in STDOUT:
-        name, var = line.partition("=")[::2]
-        if not var:
-            continue
-        elif name == 'gcodepath':
-            gcodepath = var.strip()
-        elif name == 'f2nlogpath':
-            f2nlogpath = var.strip()
-
-    if (f2nlogpath == '') or (gcodepath == ''):
+    # create the mill / gcode files
+    gcode_files = gcode_runner(blue_id, mask_fits_filename)
+    if not gcode_files:
         create_response(success=0, stat=401,
                         err=f'There was a problem creating the gcode files!')
-
-    STDOUT.close()
-
-    gcode_files = [gcodepath, f2nlogpath]
 
     # Create an in-memory zip file to store the files
     zip_buffer = BytesIO()
@@ -834,6 +823,69 @@ def mill_files():
 
     return send_file(zip_buffer, download_name=f'gcode-files-{blue_id}.zip',
                      as_attachment=True)
+
+
+def dbmaskout_runner(blue_id):
+    exec_dir = f"{KROOT}/{DBMASKOUT_DIR}"
+    out_dir = f"{KROOT}/var/dbMaskOut/"
+
+    mask_fits_filename, mask_ali_filename = utils.generate_mask_descript(
+        blue_id, exec_dir, out_dir, KROOT
+    )
+
+    if not mask_fits_filename:
+        return None
+
+    maskout_files = [mask_fits_filename, mask_ali_filename]
+
+    return maskout_files
+
+
+def gcode_runner(blue_id, mask_fits_filename):
+    # convert mask FITS file into G-code
+    ncmill_path = f"{KROOT}/{NCMILL_DIR}"
+    fits2ncc = f"{ncmill_path}/fits2ncc"
+
+    # redirect stdout and stderr into these files
+    STDOUT = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.out", 'w+')
+    STDERR = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.err", 'w')
+
+    # call external function fits2ncc
+    status = subprocess.call(
+        [fits2ncc, f"{TOOL_DIAMETER}", f"{mask_fits_filename}"],
+        stdout=STDOUT, stderr=STDERR
+    )
+
+    STDERR.close()
+
+    if status != 0:
+        return None
+
+    f2nlogpath = ''
+    gcodepath = ''
+
+
+    # rewind the stdout from fits2ncc script
+    STDOUT.seek(0)
+
+    for line in STDOUT:
+        name, var = line.partition("=")[::2]
+        if not var:
+            continue
+        elif name == 'gcodepath':
+            gcodepath = var.strip()
+        elif name == 'f2nlogpath':
+            f2nlogpath = var.strip()
+
+    if (f2nlogpath == '') or (gcodepath == ''):
+        return None
+
+    STDOUT.close()
+
+    gcode_files = [gcodepath, f2nlogpath]
+
+    return gcode_files
+
 
 # TODO needs to be updated to email PI as well -- when ready!
 @app.route("/slitmask/remill-mask")
@@ -906,7 +958,7 @@ def remill_mask():
         return create_response(success=0, stat=503, err=err)
 
 
-    pi_emails = utils.get_design_owner_emails(db_obj, blue_id, design_id, SQL_PARAMS)
+    pi_emails = utils.get_design_owner_emails(db_obj, blue_id, design_id, OBS_INFO)
 
     email_list = [EMAIL_INFO['admin'], user_info.email] + pi_emails
 
@@ -958,9 +1010,8 @@ def admin_search():
         return create_response(success=0, err='Unauthorized', stat=401)
 
     # get the query based on the search options
-    query_dict = search_utils.admin_search(search_options, db_obj, SQL_PARAMS)
+    query_dict = search_utils.admin_search(search_options, db_obj, OBS_INFO)
     if query_dict['msg']:
-        print('here', search_options)
         results = [{'results': query_dict['msg']}]
         return create_response(success=1, data=results)
 
@@ -1067,8 +1118,12 @@ def get_all_valid_masks():
         return create_response(success=0, err='Unauthorized', stat=401)
 
     curse = db_obj.get_dict_curse()
-    obid_col = gen_utils.get_obid_column(curse, SQL_PARAMS)
-    full_obs_info = gen_utils.get_observer_dict(curse, SQL_PARAMS)
+    obid_col = gen_utils.get_obid_column(curse, OBS_INFO)
+
+    # TODO this is the full table,  merged with the legacy table
+    full_obs_info = gen_utils.get_observer_dict(curse, OBS_INFO)
+    if not full_obs_info:
+        return create_response(success=0, err='Database Error!', stat=503)
 
     if not do_query('mask_valid', curse, (obid_col, )):
         return create_response(success=0, err='Database Error!', stat=503)
@@ -1078,6 +1133,7 @@ def get_all_valid_masks():
     # add in the observer information
     match_dict = {observer['obid']: observer for observer in full_obs_info}
 
+    # this returns all masks in the database
     for obs in results:
         obid = obs['obid']
         if obid in match_dict:
@@ -1243,9 +1299,14 @@ def get_mask_detail():
 
     ############################
 
+    # TODO this can be query by design pid
     # query the Design Author from Observers
-    keck_obs_info = gen_utils.get_observer_dict(curse, SQL_PARAMS)
-    results = [obsvr for obsvr in keck_obs_info if obsvr['obid'] == design_pid]
+    # keck_obs_info = gen_utils.get_observer_dict(curse, OBS_INFO)
+    # results = [obsvr for obsvr in keck_obs_info if obsvr['obid'] == design_pid]
+
+    results = gen_utils.get_obs_by_maskid(curse, design_pid, OBS_INFO)
+    if not results:
+        return create_response(success=0, err='Database Error!', stat=503)
 
     if len(results) == 0:
         msg = f"DesPId {design_pid} exists in DesId {design_id} but not in table Observers"
@@ -1300,8 +1361,13 @@ def get_mask_detail():
 
         # query the Blueprint Observer from Observers
 
-        keck_obs_info = gen_utils.get_observer_dict(curse, SQL_PARAMS)
-        results = [obsvr for obsvr in keck_obs_info if obsvr['obid'] == blupid]
+        # TODO this can be changed to query by bluid
+        # keck_obs_info = gen_utils.get_observer_dict(curse, OBS_INFO)
+        # results = [obsvr for obsvr in keck_obs_info if obsvr['obid'] == blupid]
+
+        results = gen_utils.get_obs_by_maskid(curse, design_pid, OBS_INFO)
+        if not results:
+            return create_response(success=0, err='Database Error!', stat=503)
 
         if len(results) == 0:
             msg = f"BluPId {blupid} exists in BluId {bluid} but not in table Observers"
@@ -1345,16 +1411,18 @@ if __name__ == '__main__':
     DBMASKOUT_DIR = gen_utils.get_cfg(config, 'tcl_locations', 'dbmaskout_path')
     NCMILL_DIR = gen_utils.get_cfg(config, 'tcl_locations', 'ncmill_path')
 
-    SQL_PARAMS = {}
-    SQL_PARAMS['server'] = gen_utils.get_cfg(config, 'keck_observer', 'server')
-    SQL_PARAMS['user'] = gen_utils.get_cfg(config, 'keck_observer', 'user')
-    SQL_PARAMS['pwd'] = gen_utils.get_cfg(config, 'keck_observer', 'pwd')
-    SQL_PARAMS['db'] = gen_utils.get_cfg(config, 'keck_observer', 'db')
+    OBS_INFO = {}
+    OBS_INFO['info_url'] = gen_utils.get_cfg(config, 'keck_observer', 'info_url')
+    OBS_INFO['cookie_url'] = gen_utils.get_cfg(config, 'keck_observer', 'cookie_url')
 
     EMAIL_INFO = {}
     EMAIL_INFO['from'] = gen_utils.get_cfg(config, 'email_info', 'from')
     EMAIL_INFO['admin'] = gen_utils.get_cfg(config, 'email_info', 'admin')
     EMAIL_INFO['server'] = gen_utils.get_cfg(config, 'email_info', 'server')
+
+    GCODE_DIR = gen_utils.get_cfg(config, 'tcl_params', 'gcode_dir')
+
+    RAW_MDF_DIR = gen_utils.get_cfg(config, 'file_store', 'raw_mdf')
 
     api_port = gen_utils.get_cfg(config, 'api_parameters', 'port')
     app.run(host='0.0.0.0', port=api_port)

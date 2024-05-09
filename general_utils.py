@@ -18,7 +18,7 @@ from gnuplot5 import *
 from mask_constants import MASK_ADMIN, RECENT_NDAYS
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
-from mysql_utils import query_observers
+# from mysql_utils import query_observers
 
 from collections import OrderedDict
 
@@ -44,17 +44,12 @@ def start_up(app_path, config_name='catalog_config.ini'):
     return config, log
 
 
-def get_userinfo():
+def get_userinfo(obs_info):
     cooked = request.cookies
 
     # Suppress the InsecureRequestWarning from urllib3 (www3build has old certificate)
     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-
-    #TODO move the URL out
-    url = 'https://www3build.keck.hawaii.edu/userinfo/odb-cookie'
-    response = requests.get(url, cookies=cooked, verify=False)
-    import json
-
+    response = requests.get(obs_info['cookie_url'], cookies=cooked, verify=False)
     userinfo = json.loads(response.content.decode('utf-8'))
 
     if 'Id' not in userinfo or 'Email' not in userinfo:
@@ -63,7 +58,46 @@ def get_userinfo():
     return userinfo
 
 
-def get_observer_dict(curse, sql_params):
+def get_obs_by_maskid(curse, observer_id, obs_info_url, obid=None):
+
+    try:
+        observer_id = int(observer_id)
+    except Exception as err:
+        return None
+
+    # mask ids > 1000 are keck IDs,  otherwise it is the obid in the mask table
+    if int(observer_id) > 1000:
+        url_params = f"obsid={observer_id}"
+        keck_observers = get_keck_obs_info(url_params, obs_info_url)
+        if not keck_observers:
+            return None
+
+        # add obid to results,  obid = keckid
+        observer_info = keck_observers[0]
+        if not obid:
+            observer_info['obid'] = observer_info['keckid']
+        else:
+            observer_info['obid'] = obid
+
+        return [observer_info]
+
+    # if id is a legacy mask ID (obid) < 1000
+    if not do_query('keckid_from_obid', curse, (observer_id,)):
+        print('here we are2')
+
+        return None
+
+    observer_keck_id = get_dict_result(curse)
+
+    if not observer_keck_id or 'keckid' not in observer_keck_id[0]:
+        return None
+
+    # recurse with the keckid > 1000 and setting the obid paramter with original id
+    return get_obs_by_maskid(curse, observer_keck_id[0]['keckid'],
+                             obs_info_url, obid=observer_id)
+
+
+def get_observer_dict(curse, obs_info_url):
     """
     Get the MySQL observer table and merge this with the obid in the slitmask
     PostGreSQL observer table.  The slitmask observer table is no longer
@@ -75,9 +109,19 @@ def get_observer_dict(curse, sql_params):
         Id (keck ID), Firstname, Lastname, Email, Affiliation, AllocInst
     :rtype:
     """
-    keck_observers_mysql = query_observers(sql_params)
+    log = log_fun.get_log()
+
+    # keck_observers_mysql = query_observers(sql_params)
+
+    # TODO this used to get the full table
+    url_params = f"obsid={observer_id}"
+    keck_observers_mysql = get_keck_obs_info(url_params, obs_info_url)
+
+    # keck_observers_mysql = get_keck_obs_info(obs_info_url)
 
     observer_table = []
+
+    # if the keck observers table exists,  add the legacy table to it
     if keck_observers_mysql:
 
         # get the original observers from the slitmask db (no longer update 2024)
@@ -97,12 +141,12 @@ def get_observer_dict(curse, sql_params):
                 merged_item = {'obid': keckid, **item}
             observer_table.append(merged_item)
     else:
-        print('no results from observers')
+        log.error('no results from observers')
 
     return observer_table
 
 
-def get_obid_column(curse, sql_params):
+def get_obid_column(curse, obs_info_url):
     """
     Get a list the represents the OBID column from the combine mysql observer
     table and the psql observers table.
@@ -113,7 +157,7 @@ def get_obid_column(curse, sql_params):
     :return: list of slitmask observer ids
     :rtype: list
     """
-    observer_table = get_observer_dict(curse, sql_params)
+    observer_table = get_observer_dict(curse, obs_info_url)
     iter = 0
     for obs_dict in observer_table:
         iter += 1
@@ -385,6 +429,7 @@ def generate_svg_plot(user_info, info_results, slit_results, bluid):
     plot_file_name = svgfn.replace('gnup', 'svg')
     return plot_file_name, svgx, svgy
 
+# TODO add order observer information
 
 def order_mask_design(results):
 
@@ -469,3 +514,25 @@ def order_search_results(results):
         new_results.append(OrderedDict((new_key, result[orig_key]) for orig_key, new_key in new_keys_map))
 
     return new_results
+
+
+def get_keck_obs_info(url_params, obs_info_url):
+    """
+    Performs a an API query
+    """
+    log = log_fun.get_log()
+
+    url = f"{obs_info_url['info_url']}?{url_params}"
+
+    # Make a GET request to the API endpoint
+    response = requests.get(url, verify=False)
+
+    try:
+        observer_dict = response.json()
+        if not observer_dict:
+            log.warning(f'no observer found for {url_params} {observer_dict}')
+            return None
+    except Exception as err:
+        print(f'error accessing url: {url}')
+
+    return observer_dict

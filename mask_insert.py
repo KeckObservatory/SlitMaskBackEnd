@@ -5,7 +5,6 @@ ONLYONE = 0
 
 
 class MaskInsert:
-    # def __init__(self, keck_id, design_id, guiname, db, maps, log, err_report):
     def __init__(self, user_info, hdul, db, maps, log, err_report):
         self.keck_id = user_info.keck_id
         self.user_email = user_info.email
@@ -29,27 +28,33 @@ class MaskInsert:
         self.err_report.append(msg)
 
     def mask_design(self, row, query):
-        params = (
-            # design_id (default)
-            row['DesName'],
-            int(self.maps.obid[row['DesAuth']]),  # DesPId becomes ObId matching DesAuth
-            row['DesCreat'],
-            row['DesDate'],  # FITS date is ISO8601 and pgsql groks that
-            int(row['DesNslit']),
-            int(row['DesNobj']),
-            row['ProjName'],
-            row['INSTRUME'],
-            row['MaskType'],
-            float(row['RA_PNT']),  # truly double
-            float(row['DEC_PNT']),  # truly double
-            row['RADEPNT'],
-            float(row['EQUINPNT']),
-            float(row['PA_PNT']),
-            row['DATE_PNT'], # FITS date is ISO8601 and pgsql groks that
-            float(row['LST_PNT']),
-            # time_stamp (default)
-            self.user_email
-        )
+        try:
+            params = (
+                # design_id (default)
+                row['DesName'],
+                int(self.maps.obid[row['DesAuth']]),  # DesPId becomes ObId matching DesAuth
+                row['DesCreat'],
+                row['DesDate'],  # FITS date is ISO8601 and pgsql groks that
+                int(row['DesNslit']),
+                int(row['DesNobj']),
+                row['ProjName'],
+                row['INSTRUME'],
+                row['MaskType'],
+                float(row['RA_PNT']),  # truly double
+                float(row['DEC_PNT']),  # truly double
+                row['RADEPNT'],
+                float(row['EQUINPNT']),
+                float(row['PA_PNT']),
+                row['DATE_PNT'], # FITS date is ISO8601 and pgsql groks that
+                float(row['LST_PNT']),
+                # time_stamp (default)
+                self.user_email
+            )
+        except Exception as e:
+            msg = f"Invalid Parameters: {e}"
+            self.log.error(msg)
+            self.err_report.append(msg)
+
         try:
             self.db.cursor.execute(query, params)
         except Exception as e:
@@ -59,35 +64,42 @@ class MaskInsert:
             self.maps.desid[row['DesId']] = result['desid']
 
     def mask_blue(self, row, query):
-        params = (
-            # BluId gets default for new primary key
-            self.maps.desid[row['DesId']],  # this is set by mask_design()
-            row['BluName'],
-            int(self.maps.obid[row['BluObsvr']]),  # BluPId becomes ObId matching BluObsvr
-            row['BluCreat'],
-            row['BluDate'],  # FITS date is ISO8601 and pgsql groks that
-            float(row['LST_Use']),
-            row['DATE_USE'],  # FITS date is ISO8601 and pgsql groks that
-            int(self.maps.teleid[row['TELESCOP']]),
-            float(row['AtmTempC']),
-            float(row['AtmPres']),
-            float(row['AtmHumid']),
-            float(row['AtmTTLap']),
-            float(row['RefWave']),
-            self.guiname,
-            # millseq is NULL at ingest
-            # status is NULL at ingest
-            # loc is NULL at ingest
-            # maskblu.stamp gets default now()
-            row['RefrAlg'],
-            row['DistMeth'],
-        )
+        try:
+            params = (
+                # BluId gets default for new primary key
+                self.maps.desid[row['DesId']],  # this is set by mask_design()
+                row['BluName'],
+                int(self.maps.obid[row['BluObsvr']]),  # BluPId becomes ObId matching BluObsvr
+                row['BluCreat'],
+                row['BluDate'],  # FITS date is ISO8601 and pgsql groks that
+                float(row['LST_Use']),
+                row['DATE_USE'],  # FITS date is ISO8601 and pgsql groks that
+                int(self.maps.teleid[row['TELESCOP']]),
+                float(row['AtmTempC']),
+                float(row['AtmPres']),
+                float(row['AtmHumid']),
+                float(row['AtmTTLap']),
+                float(row['RefWave']),
+                self.guiname,
+                # millseq is NULL at ingest
+                # status is NULL at ingest
+                # loc is NULL at ingest
+                # maskblu.stamp gets default now()
+                row['RefrAlg'],
+                row['DistMeth'],
+            )
+        except Exception as e:
+            msg = f"Invalid Parameters: {e}"
+            self.log.error(msg)
+            self.err_report.append(msg)
+
         try:
             self.db.cursor.execute(query, params)
         except Exception as e:
             self.log_exception("Mask Blue Insert", e)
         else:
             result = self.db.cursor.fetchone()
+            # maps.bluid is a dictonary like:  {1: 18756}
             self.maps.bluid[row['BluId']] = result['bluid']
 
     def design_slit(self, row, query):
@@ -274,22 +286,15 @@ class MaskInsert:
         okGUIwords = okGUIname.split()
         lenokGUI = len(okGUIwords)
         if lenokGUI == 0:
-            msg = ("MaskBlu.GUIname is empty")
+            msg = "MaskBlu.GUIname is empty"
             self.log.warning(msg)
-            print(msg)
-            anom += 1
         elif lenokGUI > 1:
             msg = ("MaskBlu.GUIname '%s' has embedded whitespace" % (GUIname,))
             self.log.warning(msg)
-            print(msg)
             # collapse whitespace
             newGUIname = ''.join(okGUIwords)
         else:
-            # msg = ("MaskBlu.GUIname '%s' had no whitespace" % (GUIname,))
-            # self.log.info( msg )
-            # print(msg)
             newGUIname = GUIname
-        # end if
 
         # we require that  MaskBlu.GUIname be just printable ASCII
         # because KTL and the mill code generator only know that
@@ -305,10 +310,8 @@ class MaskInsert:
         # select all existing GUIname like that
         # Hope that not all possible final characters have
         # already been used, and use one of those unused.
-        gnSelect = ("select GUIname from MaskBlu"
-                    " where GUIname like %s;")
+        gnSelect = ("SELECT GUIname FROM MaskBlu WHERE GUIname LIKE %s;")
 
-        print("newGUIname %s" % (newGUIname,))
         shortGUIname = newGUIname[:7]
         shortGUIlike = newGUIname[:7] + "%"
 
@@ -317,24 +320,21 @@ class MaskInsert:
         except Exception as e:
             msg = ("gnSelect failed: %s: exception class %s: %s" % (db.cursor.query, e.__class__.__name__, e))
             self.log.error(msg)
-            print(msg)
-            errcnt += 1
         # end try gnSelect
 
         # fetch one at a time and match using listyness
         guinamelist = []
-        print("guinamelist created")
         for resrow in self.db.cursor:
             rowguiname = resrow['guiname'].strip()
             if rowguiname not in guinamelist:
                 guinamelist.append(rowguiname)
             else:
-                print("GUIname '%s' has dups in db" % (rowguiname,))  # end if rowguiname
+                self.log.warning(f"GUIname '{rowguiname}' has dups in db")
         # end for resrow
         for lastchar in string.ascii_letters + string.digits + "_:":
             tryGUIname = shortGUIname + lastchar
             if tryGUIname not in guinamelist:
-                print("tryGUIname '%s' was not in guinamelist %s" % (tryGUIname, guinamelist))
+                self.log.warning(f"tryGUIname '{tryGUIname}' was not in guinamelist {guinamelist}")
                 newGUIname = tryGUIname
                 break  # end if tryGUIname
         # end for lastchar
@@ -349,7 +349,6 @@ class MaskInsert:
         if (newGUIname != GUIname):
             msg = (f"we change MaskBlu.GUIname to {newGUIname}")
             self.log.warning(msg)
-            print(msg)
             GUIname = newGUIname
         # end if we changed GUIname
 

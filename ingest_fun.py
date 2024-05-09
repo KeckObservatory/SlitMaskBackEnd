@@ -2,7 +2,10 @@
 
 # tools for access to DEIMOS multi-HDU FITS slitmask description file (MDF)
 
-ONLYONE = 0
+# Suppress astropy header keyword warnings
+import warnings
+warnings.filterwarnings('ignore', message='The following header keyword is invalid', category=UserWarning)
+warnings.filterwarnings('ignore', message='Invalid keyword for column', category=UserWarning)
 
 from astropy.io import fits
 from astropy.table import Table
@@ -44,7 +47,7 @@ class mdf2dbmaps:
 
     # Keck 1 is 2, Keck 2 is 1 because DEIMOS defined the MDF scheme
     # and LRIS was added later into the MDF scheme
-    teleid = {'Keck I': 2, 'Keck II' : 1}
+    teleid = {'Keck I': 2, 'Keck II': 1}
 
 
 ########################################################################
@@ -52,451 +55,419 @@ class mdf2dbmaps:
 
 ########################################################################
 
-
-def validate_mdf_content(keck_id, hdul, db, maps, sql_params):
-    """
-    hdul,   # HDU list from opening a FITS file
-    db,     # connection to PgSQL database with Keck slitmask info
-    maps    # mdf2dbmaps object
-
-    examine table contents of multi-extension FITS MDF
-    return FAILURE if the content violates any rules
-    """
-    log = log_fun.get_log()
-    err_report = []
-
-    ####################################################################
-    # We need a database connection to ascertain whether MaskDesign.DesAuth
-    # and MaskBlu.BluObsvr are known users.
-
-    if db is None:
-        log.error('no database object connection defined.')
-        return False, err_report
-
-    ####################################################################
-    # MASK Design
-    
-    # assume MDF contains exactly one MaskDesign
-    valid, err_report = valid_utils.mdf_table_rows(hdul, err_report, log)
-    if not valid:
-        return False, err_report
-
-    maps = valid_utils.set_design_pid(db, hdul, maps, sql_params)
-
-    ####################################################################
-    # MASK BLUE
-
-    # assume MDF contains exactly one MaskBlu
-    valid, err_report = valid_utils.mask_blue_rows(hdul, err_report, log)
-    if not valid:
-        return False, err_report
-
-    maps = valid_utils.set_blue_pid(db, hdul, maps, sql_params)
-
-    ####################################################################
-
-    validate = MaskValidation(hdul, err_report, log)
-
-    validate.slit_number()
-    # TODO update once set to Keck Id -- what is this checking??
-    # # we require that MaskDesign.DesAuth / maskblue be a mailbox with valid e-mail address
-    # DesAuth             = hdul['MaskDesign'].data['DesAuth'][ONLYONE]
-    # DesAuthEmail        = mbox2email(DesAuth)
-    # if len(DesAuthEmail) == 0:
-    #     msg     = ("MaskDesign.DesAuth '%s' must contain a valid e-mail address" % DesAuth)
-    #     tclog.logger.error( msg )
-    #     print(msg)
-    #     anom    += 1
-    # else:
-    #     # at time of ingest we will query this from the database
-    #     maps.email[DesAuth]     = DesAuthEmail
-    # end if len(DesAuthEmail)
-
-    # TODO
-    # +  # we require that MaskBlu.BluObsvr be a mailbox with a known user e-mail
-    # +    BluObsvr = hdul['MaskBlu'].data['BluObsvr'][ONLYONE]
-    # +    BluObsvrEmail = mbox2email(BluObsvr)
-    # +
-    # if len(BluObsvrEmail) == 0:
-    #     +        msg = ("MaskBlu.BluObsvr '%s' must contain a valid e-mail address" % BluObsvr)
-
-    # validate.user_email(db.maskumail)
-    validate.instrument()
-    validate.telescope()
-    validate.date_pnt()
-    validate.date_use()
-    # TODO
-    # +  # We require that MaskBlu.GUIname not be empty.
-    # +  # For DEIMOS masks the designer must specify GUIname in DSIMULATOR.
-    # +  # For LRIS masks the lsc2df program must have synthesized GUIname.
-    # +    BluGUIname = hdul['MaskBlu'].data['guiname'][ONLYONE]
-    # +
-    # if len(BluGUIname.strip()) == 0:
-    #     +        msg = ("MaskBlu.GUIname is empty")
-    # +  # Note also that there are other constraints on the value of
-    # +  # MaskBlu.GUIname
-    # +  # Those constraints are not intrinsic to the MDF itself.
-    # +  # Those constraints are extrinsic because they depend on the
-    # +  # the current contents of the slitmask database.
-    # +  # Those constraints are implemented in okayGUIname()
-    validate.design_slits()
-    validate.blue_slits()
-    validate.slit_object_map()
-    validate.object_catalogs()
-
-    err_report = validate.get_err_report()
-
-    ####################################################################
-
-    if len(err_report) > 0:
-        print(f"There are {len(err_report)} error(s). The file cannot be ingested.")
-        print(err_report)
-        return False, err_report
-
-    print("No anomalies in MDF file, we can ingest this file.")
-
-    return True, err_report
-
-
-########################################################################
-
-
-def validate_MDF(keck_id, hdul, db, maps, sql_params):
-    """
-    hdul,           # astropy FITS hdulist
-    db,             # connection to slitmask database
-    maps,           # mdf2dbmaps object
-
-    attempt to read hdul
-    ascertain whether it is a multi-HDU FITS mask description file (MDF)
-    ascertain whether the data in the MDF satisfy all validity rules
-    """
-    log = log_fun.get_log()
-    log.info('validating MDF')
-    missing = []
-
-    # does this FITS file contain all known HDUs?
-    for hdu in mdfcontent.keys():
-        if hdu not in hdul:
-            missing.append(f"did not find HDU {hdu}")
-
-    if missing:
-        missing.append(f"we cannot ingest MDF, it is missing tables:")
-        return False, missing
-
-    hdu_report = []
-
-    # loop over all HDUs in this FITS file
-    for hdu in hdul:
-        msg = None
-        if isinstance(hdu, fits.PrimaryHDU):
-            pass
-        elif hdu.name not in mdfcontent:
-            # not an error, but surprising if extra HDUs exist
-            msg = f"unexpected EXTNAME {hdu.name}"
-        elif type(hdu) not in mdfcontent[hdu.name].hdutypes:
-            msg = f"hdutype {type(hdu)} for EXTNAME {hdu.name} " \
-                  f"mdfcontent[hdu.name].hdutypes {mdfcontent[hdu.name].hdutypes}" \
-                  f"wrong hdutype {type(hdu).__name__} for EXTNAME {hdu.name}"
-
-        if msg:
-            hdu_report.append(msg)
-            log.warning(msg)
-
-    if hdu_report:
-        msg = f"There is an issue(s) with the MDF HDUs."
-        msg += "\n".join([f"* {item}" for item in hdu_report])
-        return False, hdu_report
-
-    # loop over all FITS HDUs that we expect in a MDF
-    for extname in mdfcontent.keys():
-        # does the table structure of this HDU match our expectations?
-        badtables = valid_utils.valTableExt(hdul, extname)
-
-    if badtables:
-        msg = f"we cannot ingest MDF, it has malformed tables."
-        msg += "\n".join([f"* {item}" for item in badtables])
-        log.error(msg)
-        return False, badtables
-
-    # validate the content
-    status, err_report = validate_mdf_content(keck_id, hdul, db, maps, sql_params)
-
-    return status, err_report
-
-
-########################################################################
-
-
-def ingestMDF(user_info, file, db, maps, sql_params):
-    """
-
-    file,           # path to a MDF file
-    db,             # connection to slitmask database
-    maps            # mdf2dbmaps object
-
-    suppose file might be a MDF
-    validate the structure and content of the file
-    insert data from its FITS tables into the database
-    """
-    log = log_fun.get_log()
-
-    # open the FITS file
-    try:
-        hdul = fits.open(file)
-    except Exception as e:
-        msg = f"could not open file {file}: exception: {e}"
-        log.error(msg)
-
-        return False, [msg]
-
-    # validate the structure and content of the file
-    valid, err_report = validate_MDF(user_info.keck_id, hdul, db, maps, sql_params)
-
-    if not valid:
-        err_report.append(f"did not insert because file had problems")
-        return False, err_report
-
-    if db is None:
-        err_report.append("no mask user, no attempt to insert")
-        return False, err_report
-
-    ####################
-    # design_id = hdul['MaskDesign'].data['DesId'][ONLYONE]
-
-    # check for duplicate GUI name
-    # mdfGUIname = hdul['MaskBlu'].data['guiname'][0]
-    # guiname = okayGUIname(mdfGUIname, db, log)
-
-    # insert = MaskInsert(keck_id, design_id, guiname, db, maps, log, err_report)
-    insert = MaskInsert(user_info, hdul, db, maps, log, err_report)
-
-    # MaskDesign -> maskdesign
-    #   @validate lookup map DesAuth from e-mail to ObId as DesPId
-    #   @insert   use DesPId from validate
-    #   @insert   create map DesId to value of new primary key in maskdesign
-
-    # table MaskDesign was created with
-    # DesId       SERIAL                  PRIMARY KEY,
-    # stamp       timestamp without time zone DEFAULT now()
-    mask_design_query = get_query('mask_design_insert')
-
-    for row in hdul['MaskDesign'].data:
-        insert.mask_design(row, mask_design_query)
-
-    ####################
-
-    # MaskBlu -> maskblu
-    #   @validate lookup map BluObsvr from e-mail to ObId as BluPId
-    #   @validate lookup GUIname to see if it already exists
-    #   @insert   use BluPId from validate
-    #   @insert   create map BluId to value of new primary key in maskblu
-    #   @insert   use DesId map from MaskDesign -> maskdesign
-    #   @insert   hack GUIname to be unique
-
-    # table MaskBlu was created with
-    # BluId       SERIAL                  PRIMARY KEY,
-    # stamp       timestamp without time zone DEFAULT now()
-    mask_blue_query = get_query('mask_blue_insert')
-
-    for row in hdul['MaskBlu'].data:
-        insert.mask_blue(row, mask_blue_query)
-
-    ####################
-
-    # DesiSlits -> desislits
-    #   @insert   use DesId map from MaskDesign -> maskdesign
-    #   @insert   create map all dSlitId to value of new primary key in desislits
-
-    # table DesiSlits was created with
-    # dSlitId     SERIAL                  PRIMARY KEY,
-    design_slit_query = get_query('design_slit_insert')
-
-    for row in hdul['DesiSlits'].data:
-        insert.design_slit(row, design_slit_query)
-
-    ####################
-
-    # BluSlits  -> bluslits
-    #   @insert   use BluId map from MaskBlu -> maskblu
-    #   @insert   use all dSlitId map from DesiSlits -> desislits
-    #   @insert   create map all bSlitId to value of new primary key in bluslits
-    #             but that map we never use later
-
-    # table BluSlits was created with
-    # bSlitId     SERIAL                  PRIMARY KEY
-    # bad         INTEGER                 DEFAULT 0
-    blue_slit_query = get_query('blue_slit_insert')
-
-    for row in hdul['BluSlits'].data:
-        insert.blue_slit(row, blue_slit_query)
-
-    ####################
-
-    # ObjectCat -> objects
-    #   @insert   create map all ObjectId to value of new primary key in objects
-    # ExtendObj -> objects
-    #   only if any of those fields in Objects were not NULL
-    #   @insert   use all ObjectId map from ObjectCat -> objects
-    # NearObj -> objects
-    #   only if any of those fields in Objects were not NULL
-    #   @insert   use all ObjectId map from ObjectCat -> objects
-
-    # table objects was created with
-    # ObjectId    SERIAL                  PRIMARY KEY
-    # bad         INTEGER                 DEFAULT 0
-    target_query = get_query('target_insert')
-    extended_target_query = get_query('extended_target_insert')
-    nearby_target_query = get_query('nearby_target_insert')
-
-    for row in hdul['ObjectCat'].data:
-        result = insert.target(row, target_query)
-        # TODO added check for None,  needs testing
-        if not result:
-            continue
-
-        # all indicators say that astropy FITS table I/O
-        # does not detect NULL values in FITS table
-        # sla sees here that NULL values are reported as value 0.
-        # therefore this code tests against 0.
-        if (row['MajAxPA'] != 0.) or (row['MinAxis'] != 0.):
-            insert.extended_target(row, extended_target_query, result)
+class IngestFun:
+    def __init__(self, user_info, db, sql_params):
+        self.maps = mdf2dbmaps()
+        self.user_info = user_info
+        self.sql_params = sql_params
+        self.log = log_fun.get_log()
+
+        if db is None:
+            self.log.error('no database object connection defined.')
+        self.db = db
+
+    def get_maps(self):
+        return self.maps
+
+    def validate_mdf_content(self, hdul):
+        """
+        hdul,   # HDU list from opening a FITS file
+
+        examine table contents of multi-extension FITS MDF
+        return FAILURE if the content violates any rules
+        """
+        err_report = []
+
+        ####################################################################
+        # MASK Design
+
+        # assume MDF contains exactly one MaskDesign
+        valid, err_report = valid_utils.mdf_table_rows(hdul, err_report, self.log)
+        if not valid:
+            return False, err_report
+
+        self.maps = valid_utils.set_design_pid(self.db, hdul, self.maps, self.sql_params)
+
+        ####################################################################
+        # MASK BLUE
+
+        # assume MDF contains exactly one MaskBlu
+        valid, err_report = valid_utils.mask_blue_rows(hdul, err_report, self.log)
+        if not valid:
+            return False, err_report
+
+        self.maps = valid_utils.set_blue_pid(self.db, hdul, self.maps, self.sql_params)
+
+        ####################################################################
+
+        validate = MaskValidation(self.maps, hdul, err_report, self.log)
+
+        validate.slit_number()
+        validate.has_emails()
+        validate.has_guiname()
+        validate.instrument()
+        validate.telescope()
+        validate.date_pnt()
+        validate.date_use()
+        validate.design_slits()
+        validate.blue_slits()
+        validate.slit_object_map()
+        validate.object_catalogs()
+
+        err_report = validate.get_err_report()
+
+        ####################################################################
+
+        if len(err_report) > 0:
+            msg = f"There are {len(err_report)} error(s). The file cannot be ingested."
+            err_report.append(msg)
+            return False, err_report
+
+        return True, err_report
+
+
+    ########################################################################
+
+    def validate_MDF(self, hdul):
+        """
+        hdul,           # astropy FITS hdulist
+        db,             # connection to slitmask database
+        maps,           # mdf2dbmaps object
+
+        attempt to read hdul
+        ascertain whether it is a multi-HDU FITS mask description file (MDF)
+        ascertain whether the data in the MDF satisfy all validity rules
+        """
+        missing = []
+
+        # does this FITS file contain all known HDUs?
+        for hdu in mdfcontent.keys():
+            if hdu not in hdul:
+                missing.append(f"Did not find HDU {hdu}")
+
+        if missing:
+            missing.append(f"MDF cannot be ingested, it is missing tables:")
+            return False, missing
+
+        hdu_report = []
+
+        # loop over all HDUs in this FITS file
+        for hdu in hdul:
+            msg = None
+            if isinstance(hdu, fits.PrimaryHDU):
+                pass
+            elif hdu.name not in mdfcontent:
+                # not an error, but surprising if extra HDUs exist
+                msg = f"unexpected EXTNAME {hdu.name}"
+            elif type(hdu) not in mdfcontent[hdu.name].hdutypes:
+                msg = f"hdutype {type(hdu)} for EXTNAME {hdu.name} " \
+                      f"mdfcontent[hdu.name].hdutypes {mdfcontent[hdu.name].hdutypes}" \
+                      f"wrong hdutype {type(hdu).__name__} for EXTNAME {hdu.name}"
+
+            if msg:
+                hdu_report.append(msg)
+                self.log.warning(msg)
+
+        if hdu_report:
+            msg = f"There is an issue(s) with the MDF HDUs."
+            msg += "\n".join([f"* {item}" for item in hdu_report])
+            self.log.error(msg)
+            return False, hdu_report
+
+        badtables = None
+        # loop over all FITS HDUs that we expect in a MDF
+        for extname in mdfcontent.keys():
+            # does the table structure of this HDU match our expectations?
+            badtables = valid_utils.valTableExt(hdul, extname)
+
+        if badtables:
+            msg = f"we cannot ingest MDF, it has malformed tables."
+            msg += "\n".join([f"* {item}" for item in badtables])
+            self.log.error(msg)
+            return False, badtables
+
+        # validate the content
+        status, err_report = self.validate_mdf_content(hdul)
+
+        return status, err_report
+
+
+    ########################################################################
+
+    def ingestMDF(self, file, save_path):
+        """
+
+        file,           # path to a MDF file
+        db,             # connection to slitmask database
+        maps            # mdf2dbmaps object
+
+        suppose file might be a MDF
+        validate the structure and content of the file
+        insert data from its FITS tables into the database
+        """
+        # open the FITS file
+        try:
+            hdul = fits.open(file)
+        except Exception as e:
+            msg = f"could not open file {file}: exception: {e}"
+            self.log.error(msg)
+            return False, [msg]
+
+        # validate the structure and content of the file
+        try:
+            valid, err_report = self.validate_MDF(hdul)
+        except Exception as err:
+            msg = f"There was an error validating the MDF: {err}"
+            err_report = [msg]
+            valid = False
+
+        # TODO save fits file
+        # print(f'saving {save_path}')
+        # hdul.writeto(save_path)
+
+        if not valid:
+            err_report.append(f"did not insert because file had problems")
+            return False, err_report
+
+        if self.db is None:
+            err_report.append("no mask user, no attempt to insert")
+            return False, err_report
+
+        ####################
+        # design_id = hdul['MaskDesign'].data['DesId'][ONLYONE]
+
+        # check for duplicate GUI name
+        # mdfGUIname = hdul['MaskBlu'].data['guiname'][0]
+        # guiname = okayGUIname(mdfGUIname, self.db, log)
+
+        insert = MaskInsert(self.user_info, hdul, self.db, self.maps, self.log, err_report)
+
+        # MaskDesign -> maskdesign
+        #   @validate lookup map DesAuth from e-mail to ObId as DesPId
+        #   @insert   use DesPId from validate
+        #   @insert   create map DesId to value of new primary key in maskdesign
+
+        # table MaskDesign was created with
+        # DesId       SERIAL                  PRIMARY KEY,
+        # stamp       timestamp without time zone DEFAULT now()
+        mask_design_query = get_query('mask_design_insert')
+
+        for row in hdul['MaskDesign'].data:
+            insert.mask_design(row, mask_design_query)
+
+        ####################
+
+        # MaskBlu -> maskblu
+        #   @validate lookup map BluObsvr from e-mail to ObId as BluPId
+        #   @validate lookup GUIname to see if it already exists
+        #   @insert   use BluPId from validate
+        #   @insert   create map BluId to value of new primary key in maskblu
+        #   @insert   use DesId map from MaskDesign -> maskdesign
+        #   @insert   hack GUIname to be unique
+
+        # table MaskBlu was created with
+        # BluId       SERIAL                  PRIMARY KEY,
+        # stamp       timestamp without time zone DEFAULT now()
+        mask_blue_query = get_query('mask_blue_insert')
+
+        for row in hdul['MaskBlu'].data:
+            insert.mask_blue(row, mask_blue_query)
+
+        ####################
+
+        # DesiSlits -> desislits
+        #   @insert   use DesId map from MaskDesign -> maskdesign
+        #   @insert   create map all dSlitId to value of new primary key in desislits
+
+        # table DesiSlits was created with
+        # dSlitId     SERIAL                  PRIMARY KEY,
+        design_slit_query = get_query('design_slit_insert')
+
+        for row in hdul['DesiSlits'].data:
+            insert.design_slit(row, design_slit_query)
+
+        ####################
+
+        # BluSlits  -> bluslits
+        #   @insert   use BluId map from MaskBlu -> maskblu
+        #   @insert   use all dSlitId map from DesiSlits -> desislits
+        #   @insert   create map all bSlitId to value of new primary key in bluslits
+        #             but that map we never use later
+
+        # table BluSlits was created with
+        # bSlitId     SERIAL                  PRIMARY KEY
+        # bad         INTEGER                 DEFAULT 0
+        blue_slit_query = get_query('blue_slit_insert')
+
+        for row in hdul['BluSlits'].data:
+            insert.blue_slit(row, blue_slit_query)
+
+        ####################
+
+        # ObjectCat -> objects
+        #   @insert   create map all ObjectId to value of new primary key in objects
+        # ExtendObj -> objects
+        #   only if any of those fields in Objects were not NULL
+        #   @insert   use all ObjectId map from ObjectCat -> objects
+        # NearObj -> objects
+        #   only if any of those fields in Objects were not NULL
+        #   @insert   use all ObjectId map from ObjectCat -> objects
+
+        # table objects was created with
+        # ObjectId    SERIAL                  PRIMARY KEY
+        # bad         INTEGER                 DEFAULT 0
+        target_query = get_query('target_insert')
+        extended_target_query = get_query('extended_target_insert')
+        nearby_target_query = get_query('nearby_target_insert')
+
+        for row in hdul['ObjectCat'].data:
+            result = insert.target(row, target_query)
+            # TODO added check for None,  needs testing
+            if not result:
+                continue
+
+            # all indicators say that astropy FITS table I/O
+            # does not detect NULL values in FITS table
+            # sla sees here that NULL values are reported as value 0.
+            # therefore this code tests against 0.
+            if (row['MajAxPA'] != 0.) or (row['MinAxis'] != 0.):
+                insert.extended_target(row, extended_target_query, result)
+            else:
+                pass
+
+            # all indicators say that astropy FITS table I/O
+            # does not detect NULL values in FITS table
+            # sla sees here that NULL values are reported as value 0.
+            # therefore this code tests against 0.
+            if (row['PM_RA'] != 0.) or (row['PM_Dec'] != 0.) or (row['Parallax'] != 0.):
+                insert.nearby_target(row, nearby_target_query, result)
+            else:
+                pass
+
+        err_report = insert.get_err_report()
+
+        ####################
+
+        # SlitObjMap
+        #   @insert   use DesId map from MaskDesign -> maskdesign
+        #   @insert   use all ObjectId map from ObjectCat -> objects
+        #   @insert   use all dSlitId map from DesiSlits -> desislits
+        slit_object_query = get_query('slit_target_insert')
+
+        for row in hdul['SlitObjMap'].data:
+            insert.slit_target(row, slit_object_query)
+
+        ####################
+
+        if len(err_report) != 0:
+            err_report.append(f"We have errors before commitOrRollback")
+            return False, err_report
+
+        committed, message = commitOrRollback(self.db)
+
+        if committed:
+            self.log.info("commitOrRollback worked, self.db should be changed")
+            success = True
         else:
-            pass
+            err_report.append(f"commitOrRollback failed: {message}")
+            success = False
 
-        # all indicators say that astropy FITS table I/O
-        # does not detect NULL values in FITS table
-        # sla sees here that NULL values are reported as value 0.
-        # therefore this code tests against 0.
-        if (row['PM_RA'] != 0.) or (row['PM_Dec'] != 0.) or (row['Parallax'] != 0.):
-            insert.nearby_target(row, nearby_target_query, result)
-        else:
-            pass
+        ####################
 
-    err_report = insert.get_err_report()
+        # clear maps before we do next MDF
+        self.maps.obid.clear()
+        self.maps.desid.clear()
 
-    ####################
+        hdul.close()
 
-    # SlitObjMap
-    #   @insert   use DesId map from MaskDesign -> maskdesign
-    #   @insert   use all ObjectId map from ObjectCat -> objects
-    #   @insert   use all dSlitId map from DesiSlits -> desislits
-    slit_object_query = get_query('slit_target_insert')
-
-    for row in hdul['SlitObjMap'].data:
-        insert.slit_target(row, slit_object_query)
-
-    ####################
-
-    if len(err_report) != 0:
-        err_report.append(f"We have errors before commitOrRollback")
-        return False, err_report
-
-    committed, message = commitOrRollback(db)
-
-    if committed:
-        log.info("commitOrRollback worked, db should be changed")
-        success = True
-    else:
-        err_report.append(f"commitOrRollback failed: {message}")
-        success = False
-
-    ####################
-
-    # clear maps before we do next MDF
-    maps.obid.clear()
-    maps.desid.clear()
-
-    hdul.close()
-
-    return success, err_report
+        return success, err_report
 
 
-def convertLRIStoMDF(file3path, email, date_use):
-    """
-    given a .file3 file created by the LRIS mask design software
-    convert that to a mask design FITS
+    def convertLRIStoMDF(file3path, email, date_use):
+        """
+        given a .file3 file created by the LRIS mask design software
+        convert that to a mask design FITS
 
-    The .file3 files have contents which are basically the same as the
-    input for the Windows-based Surfcam program.
-    They contain coordinates on metal for the edges of slitlets
-    which are to be milled into a mask for LRIS.
-    They do not contain any of the celestial coordinate metadata
-    nor any of the celestial object metadata which are part of
-    MDF files for DEIMOS.
-    Therefore the MDF files created by this function have
-    FITS tables where the records for those metadata are NULL.
+        The .file3 files have contents which are basically the same as the
+        input for the Windows-based Surfcam program.
+        They contain coordinates on metal for the edges of slitlets
+        which are to be milled into a mask for LRIS.
+        They do not contain any of the celestial coordinate metadata
+        nor any of the celestial object metadata which are part of
+        MDF files for DEIMOS.
+        Therefore the MDF files created by this function have
+        FITS tables where the records for those metadata are NULL.
 
-    In the 2023/2024 rewrite for PostgreSQL the lsc2df program
-    remains as a Tcl script which is found in Keck SVN under
-    kroot/util/slitmask/xfer2keck/tcl/lsc2df
+        In the 2023/2024 rewrite for PostgreSQL the lsc2df program
+        remains as a Tcl script which is found in Keck SVN under
+        kroot/util/slitmask/xfer2keck/tcl/lsc2df
 
-    inputs:
-    file3path   path to .file3 Surfcam file from LRIS mask design software
-    email       e-mail address of a known mask submitter to put into MDF
-    date_use    FITS DATE* string value to put into MDF
+        inputs:
+        file3path   path to .file3 Surfcam file from LRIS mask design software
+        email       e-mail address of a known mask submitter to put into MDF
+        date_use    FITS DATE* string value to put into MDF
 
-    outputs:
-    MDFfile     path to DEIMOS-like mask design FITS tables (MDF) file
-    """
+        outputs:
+        MDFfile     path to DEIMOS-like mask design FITS tables (MDF) file
+        """
 
-    # convention is that we name the output MDF file like the input .file3
-    file3       = os.path.basename(file3path)
-    mdfname     = None
+        # convention is that we name the output MDF file like the input .file3
+        file3       = os.path.basename(file3path)
+        mdfname     = None
 
-    # Despite the 2023/2024 rewrite for PostgreSQL the lsc2df Tcl code
-    # outputs some messages to stdout and stderr.
-    # We expect that sometimes stdout and stderr will be useful
-    # for debugging problems.
-    # When we last checked the Makefile for lsc2df creates KROOT/var/lsc2df/log
-    lsc2dfOut   = "@KROOT@/var/lsc2df/log/%s.out" % file3
-    lsc2dferr   = "@KROOT@/var/lsc2df/log/%s.err" % file3
-    # we choose 'w' with the expectation that we want to overwrite
-    # any previous attempts to process the same input file
-    STDOUT      = open(lsc2dfOut, 'w')
-    STDERR      = open(lsc2dferr, 'w')
+        # Despite the 2023/2024 rewrite for PostgreSQL the lsc2df Tcl code
+        # outputs some messages to stdout and stderr.
+        # We expect that sometimes stdout and stderr will be useful
+        # for debugging problems.
+        # When we last checked the Makefile for lsc2df creates KROOT/var/lsc2df/log
+        lsc2dfOut   = "@KROOT@/var/lsc2df/log/%s.out" % file3
+        lsc2dferr   = "@KROOT@/var/lsc2df/log/%s.err" % file3
+        # we choose 'w' with the expectation that we want to overwrite
+        # any previous attempts to process the same input file
+        STDOUT      = open(lsc2dfOut, 'w')
+        STDERR      = open(lsc2dferr, 'w')
 
-    # the 2023/2024 version of lsc2df code is in ../tcl
-    # When we last checked the Makefile for lsc2df has BINSUB = maskpgtcl
-    lsc2df      = "@RELDIR@/bin/maskpgtcl/lsc2df"
+        # the 2023/2024 version of lsc2df code is in ../tcl
+        # When we last checked the Makefile for lsc2df has BINSUB = maskpgtcl
+        lsc2df      = "@RELDIR@/bin/maskpgtcl/lsc2df"
 
-    # we are going to use subprocess.call even if we are python3
-    status = subprocess.call([lsc2df,
-    "%s %s %s %s" % (file3path, email, mdfname, date_use)],
-    stdout=STDOUT, stderr=STDERR)
-    # make sure output gets flushed
-    STDOUT.close()
-    STDERR.close()
+        # we are going to use subprocess.call even if we are python3
+        status = subprocess.call([lsc2df,
+        "%s %s %s %s" % (file3path, email, mdfname, date_use)],
+        stdout=STDOUT, stderr=STDERR)
+        # make sure output gets flushed
+        STDOUT.close()
+        STDERR.close()
 
-    if status != 0:
-        tclog.logger.error(
-        "%s failed: see stdout %s and stderr %s"
-        % (lsc2df, lsc2dfOut, lsc2dferr) )
+        if status != 0:
+            tclog.logger.error(
+            "%s failed: see stdout %s and stderr %s"
+            % (lsc2df, lsc2dfOut, lsc2dferr) )
 
-        # return empty string as the path of the output file
-        return ""
-    # end if status
+            # return empty string as the path of the output file
+            return ""
+        # end if status
 
-    # when we last checked the Makefile for lsc2df creates KROOT/var/lsc2df
-    # we expect that lsc2df has created a MDF file with this name
-    mdfOutD     = "@KROOT@/var/lsc2df"
-    maskfits    = "%s/%s.fits" % (mdfOutD, file3)
+        # when we last checked the Makefile for lsc2df creates KROOT/var/lsc2df
+        # we expect that lsc2df has created a MDF file with this name
+        mdfOutD     = "@KROOT@/var/lsc2df"
+        maskfits    = "%s/%s.fits" % (mdfOutD, file3)
 
-    return maskfits
+        return maskfits
 
 
 ########################################################################
 
 
-import string   # string.ascii_letters string.digits
+# import string   # string.ascii_letters string.digits
 
-# def okayGUIname(GUIname, db, log):
+# def okayGUIname(GUIname, self.db, log):
 #     """
 #     inputs:
 #         GUIname
 #             usually the value of GUIname found in a MDF which we are ingesting
 #             it could be any other GUIname which we want to test for duplicates
-#         db
+#         self.db
 #             connection to PgSQL database with tables of Keck slitmask info
 #
 #     outputs:
@@ -609,7 +580,7 @@ import string   # string.ascii_letters string.digits
 #     shortGUIlike        = newGUIname[:7]+"%"
 #
 #     try:
-#         db.cursor.execute( gnSelect, (shortGUIlike,) )
+#         self.db.cursor.execute( gnSelect, (shortGUIlike,) )
 #     except Exception as e:
 #         msg     = ("gnSelect failed: %s: exception class %s: %s" %
 #         (db.cursor.query, e.__class__.__name__, e))
@@ -619,7 +590,7 @@ import string   # string.ascii_letters string.digits
 #     # end try gnSelect
 #
 #     ## fetch all at once and test painstakingly
-#     #results = db.cursor.fetchall()
+#     #results = self.db.cursor.fetchall()
 #     #lenres  = len(results)
 #     #print("%s gn like '%s'" % (lenres,shortGUIlike))
 #     #if lenres == 0:
@@ -648,12 +619,12 @@ import string   # string.ascii_letters string.digits
 #     # fetch one at a time and match using listyness
 #     guinamelist = []
 #     print("guinamelist created")
-#     for resrow in db.cursor:
+#     for resrow in self.db.cursor:
 #         rowguiname      = resrow['guiname'].strip()
 #         if rowguiname not in guinamelist:
 #             guinamelist.append(rowguiname)
 #         else:
-#             print("GUIname '%s' has dups in db" % (rowguiname,))
+#             print("GUIname '%s' has dups in self.db" % (rowguiname,))
 #         # end if rowguiname
 #     # end for resrow
 #     for lastchar in string.ascii_letters+string.digits+"_:":

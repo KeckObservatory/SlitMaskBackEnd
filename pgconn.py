@@ -51,8 +51,6 @@ class PgConn:
     # end def disconnect()
 
     def connect(self, host, port, dbname, user, password):
-        print('connecting')
-
         # this becomes a postgresql libpq connection string
         conn_string = "host='%s' port=%s dbname='%s' user='%s' password='%s'"
 

@@ -1,10 +1,14 @@
 from datetime import datetime
+from dateutil import parser as date_parser
+from dateutil.parser import ParserError
+
 
 class MaskValidation:
-    def __init__(self, hdul, err_report, log):
+    def __init__(self, map, hdul, err_report, log):
         self.hdul = hdul
         self.log = log
         self.err_report = err_report
+        self.map = map
 
     def get_err_report(self):
         return self.err_report
@@ -35,16 +39,35 @@ class MaskValidation:
 
         return False
 
-    # def user_email(self, db):
-    #     if self.keck_id is not None:
-    #         return True
-    #
-    #     msg = 'no mask user mail defined.'
-    #     self.log.warning(msg)
-    #     self.err_report.append(msg)
-    #     db.disconnect()
-    #
-    #     return False
+    def has_emails(self):
+        DesAuth = self.hdul['MaskDesign'].data['DesAuth'][0]
+
+        if not self.map.obid[DesAuth]:
+            msg = f"The design author email address is missing"
+            self.log.warning(msg)
+            self.err_report.append(msg)
+
+        BluObsvr = self.hdul['MaskBlu'].data['BluObsvr'][0]
+        if not self.map.obid[BluObsvr]:
+            msg = f"The Blueprint Observer email address is missing"
+            self.log.warning(msg)
+            self.err_report.append(msg)
+
+    def has_guiname(self):
+        msg = None
+        try:
+            mdf_gui_name = self.hdul['MaskBlu'].data['guiname'][0]
+        except Exception as err:
+            mdf_gui_name = None
+            msg = f"no MaskBlu keyword: {err}"
+
+        if not mdf_gui_name:
+            if not msg:
+                msg = f"error finding the mask guiname - MaskBlu.guiname"
+
+        if msg:
+            self.log.warning(msg)
+            self.err_report.append(msg)
 
     def slit_number(self):
         data_shape = self.hdul['DesiSlits'].data.shape[0]
@@ -82,7 +105,7 @@ class MaskValidation:
         # This code supposes python3.6 or later
         # This code supposes that FITS Date_Use values are '%Y-%m-%d'
         mask_use_date = self.hdul['MaskBlu'].data['Date_Use'][0]
-        mask_date_use_dt = datetime.strptime(mask_use_date, '%Y-%m-%d')
+        mask_date_use_dt = self._mask_date_str_dt(mask_use_date)
 
         now = datetime.strptime('2020-01-01', '%Y-%m-%d')
         nowiso = datetime.strftime(now, '%Y-%m-%d')
@@ -98,15 +121,12 @@ class MaskValidation:
 
     def date_pnt(self):
         design_date_pnt = self.hdul['MaskDesign'].data['DATE_PNT'][0]
-        print(design_date_pnt)
-        try:
-            date_pnt = datetime.strptime(design_date_pnt,  '%Y-%m-%d')
-        except ValueError:
-            date_pnt = datetime.strptime(design_date_pnt,  '%Y-%m-%dT%H:%M:%S')
+        date_pnt_dt = self._mask_date_str_dt(design_date_pnt)
 
         b1900iso = '1900-01-01'
         b1900 = datetime.strptime(b1900iso, '%Y-%m-%d')
-        if date_pnt < b1900:
+
+        if date_pnt_dt < b1900:
             msg = f"MaskDesign.DATE_PNT {design_date_pnt} is before B1900 {b1900iso}"
             self.log.warning(msg)
             self.err_report.append(msg)
@@ -222,3 +242,18 @@ class MaskValidation:
                 msg = ("ObjectCat has ObjectId %s not in SlitObjMap.ObjectId will not be ingested" % (objectid,))
                 self.log.warning(msg)
                 self.err_report.append(msg)
+
+    def _mask_date_str_dt(self, header_date_str):
+        try:
+            date_obj = date_parser.parse(header_date_str)
+        except ParserError as err:
+            msg = f"The date: {header_date_str} is invalid, error: {err}"
+            self.log.warning(msg)
+            self.err_report.append(msg)
+            return None
+
+        date_str = f"{date_obj.year}-{date_obj.month}-{date_obj.day}"
+        date_dt = datetime.strptime(date_str, '%Y-%m-%d')
+
+        return date_dt
+

@@ -25,6 +25,7 @@ ownership_queries = {
 
     # used to get all the < yr 2024 account obids,  > yr 2024 accounts obid=keckid
     "obid_column": "SELECT obid, keckid FROM observers",
+    "keckid_from_obid": "SELECT keckid FROM observers WHERE obid = %s",
 
     # used to find emails
     "blue_pi": "SELECT blupid FROM maskblu WHERE bluid = %s",
@@ -423,6 +424,17 @@ ingest_queries = {
 
 }
 
+validate_queries = {
+
+    "align_box_query": """
+        SELECT d.DesId, d.dSlitId, d.slitWid, d.slitLen, d.slitLPA, 
+                d.slitWPA, b.bSlitId from DesiSlits d, BluSlits b 
+        WHERE d.slitTyp = 'A' 
+        AND d.DesId = (select DesId from MaskBlu where BluId = %s) 
+        AND b.dSlitId = d.dSlitId and b.BluId = %s
+        """
+}
+
 
 def get_query(query_key):
     """
@@ -436,10 +448,15 @@ def get_query(query_key):
     query_str = ownership_queries.get(query_key)
     if not query_str:
         query_str = retrieval_queries.get(query_key)
+
     if not query_str:
         query_str = ingest_queries.get(query_key)
+
     if not query_str:
         query_str = admin_queries.get(query_key)
+
+    if not query_str:
+        query_str = validate_queries.get(query_key)
 
     if not query_str:
         return None

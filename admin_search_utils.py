@@ -133,6 +133,8 @@ def admin_search(options, db, sql_params):
     # query_args will become the arguments for that SQL query
     query_args = []
 
+    # TODO Design name is given here,  it seems like it should be GUIname
+
     # first we evaluate whether to limit by instrument
     inst_query = ""
     if 'inst' in options:
