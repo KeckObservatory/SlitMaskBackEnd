@@ -378,7 +378,7 @@ def chk_keck_observers(psql_db_obj, user_email, obs_info_url, log):
     # query = "select * from observers where email = %s"
     url_params = f"email={user_email}"
 
-    results = get_keck_obs_info(url_params, obs_info_url)
+    results = get_keck_obs_info(obs_info_url, url_params)
     if not results or 'Id' not in results[0]:
         return None
 
@@ -401,55 +401,6 @@ def chk_keck_observers(psql_db_obj, user_email, obs_info_url, log):
         mask_id = results[0]['obid']
 
     return mask_id
-
-
-# def get_keck_obs_info(url_params, obs_info_url):
-#     """
-#     Performs a database query, assuming protection against SQL injection.
-#     """
-#     import requests
-#     url = f'{obs_info_url}?{url_params}'
-#
-#     # Make a GET request to the API endpoint
-#     response = requests.get(url, verify=False)
-#     print(f'ur: {url}')
-#     # Check if the request was successful (status code 200)
-#     try:
-#         observer_dict = response.json()
-#         if not observer_dict:
-#             print(f'no observer {observer_dict}')
-#             return None
-#     except Exception as err:
-#         print(f'error accessing url: {url}')
-#
-#     print(observer_dict, type(observer_dict[0]))
-#
-#     return observer_dict
-
-    # if response.status_code == 200:
-    #     # Print the response data (assuming it's JSON)
-    #
-    #     print('mysql results', response.json())
-    # else:
-    #     # Print an error message if the request failed
-    #     print(f'Error: {response.status_code}')
-
-    # try:
-    #     db = 'keckOperations'
-    #     dbhost = sql_params['server']
-    #     user = sql_params['user']
-    #     password = sql_params['pwd']
-    #     conn = pymysql.connect(user=user, password=password, host=dbhost,
-    #                            database=db, autocommit=True)
-    #     cursor = conn.cursor(pymysql.cursors.DictCursor)
-    #     num = cursor.execute(query, params)
-    #
-    #     result = cursor.fetchall()
-    #     cursor.close()
-    #     conn.close()
-    #     return num, result
-    # except Exception as e:
-    #     return 0, None
 
 
 def send_email(email_msg, email_info, subject):
@@ -546,7 +497,7 @@ def get_design_owner_emails(db_obj, blue_id, design_id, obs_info_url):
         # params = (pi_id, )
         url_params = f"obsid={pi_id}"
 
-        results = get_keck_obs_info(url_params, obs_info_url)
+        results = get_keck_obs_info(obs_info_url, url_params)
         if not results or 'Email' not in results[0]:
             print('email unknown')
             continue

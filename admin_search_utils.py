@@ -6,7 +6,7 @@ import logger_utils as log_fun
 from mask_constants import MaskBluStatusMILLED
 
 
-def admin_search(options, db, sql_params):
+def admin_search(options, db, obs_info):
     """
     A list of known keys which may be found in dict.
 
@@ -158,7 +158,7 @@ def admin_search(options, db, sql_params):
         # so that we can report a separate error about the
         # unrecognized value of email.
 
-        search_obid = mask_user_id(db, options['email'], sql_params)
+        search_obid = mask_user_id(db, options['email'], obs_info)
         # obid = user_info.ob_id
 
         if search_obid == None:
@@ -176,7 +176,6 @@ def admin_search(options, db, sql_params):
 
     elif 'guiname' in options and options['guiname'] != "":
         # match GUIname which the mask ingestion software should make unique
-        print("found 'guiname'  = %s" % (options['guiname'],))
         adminInventoryQuery = (
             f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
             f"d.DesId in (select DesId from MaskBlu where GUIname ilike %s) "
@@ -188,7 +187,6 @@ def admin_search(options, db, sql_params):
 
     elif 'name' in options and options['name'] != "":
         # match either MaskDesign.DesName or MaskBlu.BluName
-        print("found 'name'  = %s" % (options['name'],))
         adminInventoryQuery = (
             f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
             f"d.DesName ilike %s or d.DesId in (select DesId from MaskBlu"
@@ -201,8 +199,6 @@ def admin_search(options, db, sql_params):
         query_args.append("%" + options['name'] + "%")
 
     elif 'bluid' in options and options['bluid'] != "" and options['bluid'] != [""]:
-        print("found 'bluid' = %s" % (options['bluid'],))
-
         # options['bluid'] should be a list of MaskBlu.BluId values
         numBlu = len(options['bluid'])
 
@@ -249,8 +245,6 @@ def admin_search(options, db, sql_params):
             query_args.append(options['bluid'][0])  # end if numBlu
 
     elif 'desid' in options and options['desid'] != "" and options['desid'] != [""]:
-        print("found 'desid' = %s" % (options['desid'],))
-
         # options['desid'] should be a list of MaskDesign.DesId values
         numDes = len(options['desid'])
 
@@ -282,7 +276,6 @@ def admin_search(options, db, sql_params):
                 query_args.append(desid)  # end for desid
         else:
             # numDes == 1
-            print("found 'desid' = %s" % (options['desid'],))
             adminInventoryQuery = (
                 f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
                 f"d.DesId = %s  and o.ObId = d.DesPId order by d.stamp desc;"
@@ -291,8 +284,6 @@ def admin_search(options, db, sql_params):
             query_args.append(options['desid'][0])  # end if numDes
 
     elif 'millseq' in options and options['millseq'] != "":
-        print("found 'millseq' = %s" % (options['millseq'],))
-
         # options['desid'] should be a list of MaskDesign.DesId values
         numSeq = len(options['millseq'])
 
@@ -366,8 +357,6 @@ def admin_search(options, db, sql_params):
         # end if numSeq
 
     elif 'barcode' in options and options['barcode'] != "" and options['barcode'] != [""]:
-        print("found 'barcode' = %s" % (options['barcode'],))
-
         # options['barcode'] should be a list of barcode=maskId values
         numMasks = len(options['barcode'])
 
@@ -421,8 +410,6 @@ def admin_search(options, db, sql_params):
         # end if numMasks
 
     elif ('milled' in options) and (options['milled'] != "all") and options['milled'] != "":
-        print("found 'milled' = %s" % (options['milled'],))
-
         if options['milled'] == "no":
 
             adminInventoryQuery = (
@@ -445,8 +432,6 @@ def admin_search(options, db, sql_params):
         query_args.append(MaskBluStatusMILLED)
 
     elif 'caldays' in options and options['caldays'] != "":
-        print("found 'caldays' = %s" % (options['caldays'],))
-
         adminInventoryQuery = (
             f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
             f"date_part('day', (select max(Date_Use) from MaskBlu where "
@@ -456,7 +441,6 @@ def admin_search(options, db, sql_params):
         query_args.append(options['caldays'])
 
     else:
-        print("found no key in dict")
         # this is the default admin query when nothing in dict
 
         adminInventoryQuery = (

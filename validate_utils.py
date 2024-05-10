@@ -41,7 +41,7 @@ def mask_blue_rows(hdul, err_report, log):
     return True, err_report
 
 
-def set_design_pid(db, hdul, maps, sql_params):
+def set_design_pid(db, hdul, maps, obs_info):
     log = log_fun.get_log()
 
     # parse design author e-mail address
@@ -49,7 +49,7 @@ def set_design_pid(db, hdul, maps, sql_params):
     DesAuthEmail = mbox2email(DesAuth)
 
     # get user
-    design_pid = mask_user_id(db, DesAuthEmail, sql_params)
+    design_pid = mask_user_id(db, DesAuthEmail, obs_info)
 
     # required that the design author is a known email address (validated later)
     if design_pid is None:
@@ -61,7 +61,7 @@ def set_design_pid(db, hdul, maps, sql_params):
     return maps
 
 
-def set_blue_pid(db, hdul, maps, sql_params):
+def set_blue_pid(db, hdul, maps, obs_info):
     log = log_fun.get_log()
 
     # parse mask blue observer e-mail address
@@ -70,7 +70,7 @@ def set_blue_pid(db, hdul, maps, sql_params):
 
     # we require that MaskBlu.BluObsvr contain a known user e-mail (validated later)
     # find the primary key for that user
-    BluPId = mask_user_id(db, BluObsvrEmail, sql_params)
+    BluPId = mask_user_id(db, BluObsvrEmail, obs_info)
     if BluPId is None:
         log.error("no blue pid")
         maps.obid[BluObsvr] = None

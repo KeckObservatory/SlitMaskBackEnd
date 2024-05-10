@@ -68,7 +68,7 @@ def get_obs_by_maskid(curse, observer_id, obs_info_url, obid=None):
     # mask ids > 1000 are keck IDs,  otherwise it is the obid in the mask table
     if int(observer_id) > 1000:
         url_params = f"obsid={observer_id}"
-        keck_observers = get_keck_obs_info(url_params, obs_info_url)
+        keck_observers = get_keck_obs_info(obs_info_url, url_params)
         if not keck_observers:
             return None
 
@@ -111,30 +111,34 @@ def get_observer_dict(curse, obs_info_url):
     """
     log = log_fun.get_log()
 
-    # keck_observers_mysql = query_observers(sql_params)
-
-    # TODO this used to get the full table
-    url_params = f"obsid={observer_id}"
-    keck_observers_mysql = get_keck_obs_info(url_params, obs_info_url)
-
-    # keck_observers_mysql = get_keck_obs_info(obs_info_url)
-
+    """
+    list of dicts like:  
+    [...
+       {
+           'Affiliation': 'University of Keck',  'AllocInst': 'OTHER', 
+           'Email': 'jane.doe@some_uni.edu', 'FirstName': 'Jane', 
+           'Id': 9999, 'LastName': 'Doe', 'Phone': '8085551212', 
+           'username': 'jdoe'
+       }
+    ]
+    """
+    keck_obs_mysql_table = get_keck_obs_info(obs_info_url)
+    
     observer_table = []
 
     # if the keck observers table exists,  add the legacy table to it
-    if keck_observers_mysql:
+    if keck_obs_mysql_table:
 
         # get the original observers from the slitmask db (no longer update 2024)
         if not do_query('obid_column', curse, None):
-            # TODO handle this exception
-            raise DatabaseError("Database Error!")
+            return None
 
         slitmask_observers = get_dict_result(curse)
 
         slitmask_obs_by_keckid = {item['keckid']: item for item in slitmask_observers}
 
-        for item in keck_observers_mysql:
-            keckid = item['keckid']
+        for item in keck_obs_mysql_table:
+            keckid = item['Id']
             if keckid in slitmask_obs_by_keckid:
                 merged_item = {**slitmask_obs_by_keckid[keckid], **item}
             else:
@@ -142,6 +146,7 @@ def get_observer_dict(curse, obs_info_url):
             observer_table.append(merged_item)
     else:
         log.error('no results from observers')
+        return None
 
     return observer_table
 
@@ -158,11 +163,8 @@ def get_obid_column(curse, obs_info_url):
     :rtype: list
     """
     observer_table = get_observer_dict(curse, obs_info_url)
-    iter = 0
-    for obs_dict in observer_table:
-        iter += 1
-        if iter > 10:
-            break
+    if not observer_table:
+        return None
 
     obid_column = [item['obid'] for item in observer_table]
 
@@ -516,13 +518,15 @@ def order_search_results(results):
     return new_results
 
 
-def get_keck_obs_info(url_params, obs_info_url):
+def get_keck_obs_info(obs_info_url, url_params=None):
     """
     Performs a an API query
     """
     log = log_fun.get_log()
 
-    url = f"{obs_info_url['info_url']}?{url_params}"
+    url = f"{obs_info_url['info_url']}"
+    if url_params:
+        url += f"?{url_params}"
 
     # Make a GET request to the API endpoint
     response = requests.get(url, verify=False)
@@ -534,5 +538,6 @@ def get_keck_obs_info(url_params, obs_info_url):
             return None
     except Exception as err:
         print(f'error accessing url: {url}')
+        return None
 
     return observer_dict

@@ -56,10 +56,10 @@ class mdf2dbmaps:
 ########################################################################
 
 class IngestFun:
-    def __init__(self, user_info, db, sql_params):
+    def __init__(self, user_info, db, obs_info):
         self.maps = mdf2dbmaps()
         self.user_info = user_info
-        self.sql_params = sql_params
+        self.obs_info = obs_info
         self.log = log_fun.get_log()
 
         if db is None:
@@ -86,7 +86,7 @@ class IngestFun:
         if not valid:
             return False, err_report
 
-        self.maps = valid_utils.set_design_pid(self.db, hdul, self.maps, self.sql_params)
+        self.maps = valid_utils.set_design_pid(self.db, hdul, self.maps, self.obs_info)
 
         ####################################################################
         # MASK BLUE
@@ -96,7 +96,7 @@ class IngestFun:
         if not valid:
             return False, err_report
 
-        self.maps = valid_utils.set_blue_pid(self.db, hdul, self.maps, self.sql_params)
+        self.maps = valid_utils.set_blue_pid(self.db, hdul, self.maps, self.obs_info)
 
         ####################################################################
 

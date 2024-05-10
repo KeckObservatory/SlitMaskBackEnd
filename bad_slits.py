@@ -7,10 +7,18 @@ from general_utils import do_query, commitOrRollback
 
 
 def mark_bad_slits(db_obj, blue_id, fn2_file_path):
-    msglist = []
+    """
+    Find and mark all bald slits.  Bad slits include the alignment boxes.
 
-    # strip the \n from the file - make one line for reading into a python dict
-    # the new line at times comes in the middle of a string and causes issues
+    :param db_obj: <obj> the database connection object (psql)
+    :param blue_id: <int> the mask blueprint ID
+    :param fn2_file_path: <str> the path to the fn2 file output by acpncc
+    :return: <list> the list of messages associated with finding and marking slits.
+    """
+    msg_list = []
+
+    # strip the \n from the file - make the file text one line for reading into
+    # a python dict the new line at times in a string and causes issues
     with open(fn2_file_path, 'r') as f:
         cleaned_lines = []
         lines = f.readlines()
@@ -18,38 +26,42 @@ def mark_bad_slits(db_obj, blue_id, fn2_file_path):
             clean_line = line.strip()
             cleaned_lines.append(clean_line)
 
-    oneline = ''.join(cleaned_lines)
+    one_line = ''.join(cleaned_lines)
 
-    oneline_file = f"{fn2_file_path}1"
-    with open(oneline_file, 'w') as f:
-        f.write(oneline)
+    one_line_file = f"{fn2_file_path}1"
+    with open(one_line_file, 'w') as f:
+        f.write(one_line)
 
 
     # check for badslits, returns {'bad_text': {}, 'bad_vert': {}, 'msg_list': []}
-    parsed_f2n_info = parseF2n(oneline_file)
+    parsed_f2n_info = parseF2n(one_line_file)
+    if not parsed_f2n_info:
+        return None
+    msg_list += parsed_f2n_info['msg_list']
 
     # update the database to mark them as bad
-    bmsglist = bSlitMarkBad(db_obj, list(parsed_f2n_info['bad_vert'].keys()))
-    msglist += bmsglist
+    bad_msg_list = mark_slit_bad(db_obj, list(parsed_f2n_info['bad_vert'].keys()))
+    msg_list += bad_msg_list
 
-    # check the alignment boxes for problems, returns {'bad_text': {}, 'bad_geo': {}}
+    # check the alignment boxes for problems, returns {'bad_text': {}, 'bad_geo': {}, 'msg_list': []}
     bad_align_info = checkAlign(db_obj, blue_id)
-
     if not bad_align_info:
         return None
+    msg_list += bad_align_info['msg_list']
 
+    # append the messages from bad alignment boxes
     for bSlitId in bad_align_info['bad_geo'].keys():
         msg = "bad alignment bSlitId %s" % (bSlitId,)
-        msglist.append(msg)
+        msg_list.append(msg)
         for text in bad_align_info['bad_text'][bSlitId]:
             msg = f"   {text}"
-            msglist.append(msg)
+            msg_list.append(msg)
 
     # update the database to mark them as bad
-    bmsglist = bSlitMarkBad(db_obj, list(bad_align_info['bad_geo'].keys()))
-    msglist += bmsglist
+    bad_msg_list = mark_slit_bad(db_obj, list(bad_align_info['bad_geo'].keys()))
+    msg_list += bad_msg_list
 
-    return msglist
+    return msg_list
 
 
 ########################################################################
@@ -132,7 +144,7 @@ def parseF2n(f2npath):
         log.error(msg)
         usrmsg = "failed to read millcode log file"
         bad_slit_info['msg_list'].append(usrmsg)
-        return bad_slit_info
+        return None
 
     # # this outputs {text "ext 2 EXTNAME ObjectCat has 93 rows which differs from DesNobj 95" }
     # # {text "ext 5 EXTNAME SlitObjMap has 93 rows which differs from DesNobj 95" }
@@ -282,7 +294,7 @@ def checkAlign(db, BluId):
     # but we use a list so that the return from checkAlign()
     # can be handled the same as the return from parseF2n()
     # bad_align_info = {'bad_slits': [], 'bad_text': {}, 'bad_geo': {}}
-    bad_align_info = {'bad_text': {}, 'bad_geo': {}}
+    bad_align_info = {'bad_text': {}, 'bad_geo': {}, 'msg_list': []}
 
     curse = db.get_dict_curse()
     if not do_query('align_box_query', curse, (BluId, BluId)):
@@ -340,6 +352,7 @@ def checkAlign(db, BluId):
 
         if bad:
             # bad_align_info['bad_slits'].append(row['bslitid'])
+            bad_align_info['msg_list'] = aboxtextlist
             bad_align_info['bad_text'][row['bslitid']] = aboxtextlist
             bad_align_info['bad_geo'][row['bslitid']] = aboxgeomlist
 
@@ -352,7 +365,7 @@ def checkAlign(db, BluId):
 ########################################################################
 
 
-def bSlitMarkBad( db, bSlitIdList ):
+def mark_slit_bad(db, bSlitIdList):
 
     """
     update the status of a blueprint
@@ -363,7 +376,7 @@ def bSlitMarkBad( db, bSlitIdList ):
 
     outputs:
     SUCCESS or FAILURE
-    msglist     text explaining SUCCESS or FAILURE
+    msg_list     text explaining SUCCESS or FAILURE
 
     side effects:
     BluSlits.bad becomes 1 for records
@@ -384,12 +397,12 @@ def bSlitMarkBad( db, bSlitIdList ):
     """
     log = log_fun.get_log()
 
-    msglist = []
+    msg_list = []
 
     if len(bSlitIdList) < 1:
         msg = "bSlitIdList is empty, no action"
         log.info(msg)
-        return msglist
+        return msg_list
 
     bSlitBadUpdate = (
         "UPDATE BluSlits SET bad = 1"
@@ -403,22 +416,22 @@ def bSlitMarkBad( db, bSlitIdList ):
               f"{e.__class__.__name__}: {e}"
         log.error(msg)
         usrmsg = "update of bad slitlets failed"
-        msglist.append(usrmsg)
-        return msglist
+        msg_list.append(usrmsg)
+        return msg_list
 
     errcnt, crbmsg = commitOrRollback(db)
 
-    if errcnt != 0:
+    if errcnt == 0:
         log.error("commitOrRollback failed")
-        msglist.append(crbmsg)
+        msg_list.append(crbmsg)
         usrmsg = "bSlit mark bad did not commit"
-        msglist.append(usrmsg)
-        return msglist
+        msg_list.append(usrmsg)
+        return msg_list
 
-    msg = "commitOrRollback worked, db should be changed"
-    tclog.logger.info(msg)
+    msg = f"commitOrRollback worked, db should be changed for {bSlitIdList}"
+    log.info(msg)
 
-    return msglist
+    return msg_list
 
 
 ########################################################################

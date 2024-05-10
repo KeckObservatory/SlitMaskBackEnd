@@ -144,225 +144,6 @@ def init_api():
 
 
 ################################################################################
-#    Masks in the instruments
-################################################################################
-# TODO requires ssh-ing to lrisserver
-@app.route("/slitmask/mask-starlist", methods=['GET'])
-def deimos_mask_starlist():
-    """
-    /kroot/rel/default/bin/barcodes
-        [dmoseng@polo ~]$ show -s deimot MSKBAR2
-                            MSKBAR2 = 9645
-
-    [dbadmin@vm-hqslitmaskdb01 src]$ ssh dmoseng@deimosserver.keck.hawaii.edu show -s deimot MSKBAR4
-                       MSKBAR4 = 12799
-
-
-    get guiname:
-        check inventory -- this can be to the new database - script = 'inventory'
-            bash-4.2$ inventory s | grep 4340
-            guiname=westph_L barcode=4340     id=15764
-
-            \
-            metabase=# select * from mask where bluid=15764;
-         maskid |   guiname    | shiptopid | shiptodate | tooldiam | toolangl | milltemp | ncagent | millid | bluid | millbypid |      milldate       | millqual | maskexp | stamp | millseq | status | shipid | bmf
-        --------+--------------+-----------+------------+----------+----------+----------+---------+--------+-------+-----------+---------------------+----------+---------+-------+---------+--------+--------+-----
-           4340 | westph_L     |           |            |          |          |          |         |      2 | 15764 |           | 2022-03-06 15:26:00 |          |       0 |       | YH      |      0 |      0 |   0
-        (1 row)
-
-
-    get RA, Dec, Equinox
-
-      # grab database entries for name, ra, dec, equinox, PA...
-          $_ = `barcode2radec $barcode`;
-          @fields = split();
-
-    if needed convert coords to sexa
-      # given decimal number, convert to sexagesimal equivalent
-
-
-    :return:
-    :rtype:
-
-    <name> HH MM SS.SSS DD mm ss.sss EPOCH Rot-Mode Position Angle
-    guiname RA          Dec          equipnt rotmode=pa rotdest=<pa_pnt>
-    """
-
-    """
-    
-    bash-3.2$ barcodes | awk 'NR<2 || /long/ || /direct/ || /focus/ || /GOH/ || /INDEF/{next}{print substr( $3 , 9, 4)}'
-        The authenticity of host 'deimos (128.171.136.181)' can't be established.
-        RSA key fingerprint is 67:41:4d:55:4a:1e:93:2c:a0:74:88:c2:5c:83:56:2f.
-        Are you sure you want to continue connecting (yes/no)? yes
-        Warning: Permanently added 'deimos,128.171.136.181' (RSA) to the list of known hosts.
-        kics@deimos's password: 
-        4587
-        4588
-        4584
-        4586
-        4604
-        4592
-        
-            LRIS
-            bash-3.2$ less /kroot/rel/default/bin/barcodes
-        
-            bash-3.2$ /kroot/rel/default/bin/configure slitname
-        Value aliases for slitname:
-              long_1.0 = 2
-              long_1.5 = 4
-              co_n2.fi = 6
-              direct = 1
-              gws_d4ns = 9
-              RMJ1327B = 10
-              GOH_LRIS = 5
-              gn_n1.fi = 7
-              gn_n2.fi = 8
-              co_n1.fi = 3
-              
-      ----
-      
-      # get current masks in LRIS
-      kics@lrisserver: /kroot/rel/default/bin/configure slitname
-
-
-        nameval - binary
-        
-        Value aliases for slitname:
-              long_1.0 = 2
-              long_1.5 = 4
-              co_n2.fi = 6
-              direct = 1
-              gws_d4ns = 9
-              RMJ1327B = 10
-              GOH_LRIS = 5
-              gn_n1.fi = 7
-              gn_n2.fi = 8
-              co_n1.fi = 3
-              
-              
-        bash-3.2$ barcodes
-        kics@deimos's password: 
-        pos=1 name=direct barcode=5920
-        pos=2 name=long_1.0 barcode=5116
-        pos=3 name=co_n1.fi barcode=4587
-        pos=4 name=long_1.5 barcode=5117
-        pos=5 name=GOH_LRIS barcode=1523
-        pos=6 name=co_n2.fi barcode=4588
-        pos=7 name=gn_n1.fi barcode=4584
-        pos=8 name=gn_n2.fi barcode=4586
-        pos=9 name=gws_d4ns barcode=4604
-        pos=10 name=RMJ1327B barcode=4592
-              
-    """
-    import re
-    import subprocess
-    from datetime import datetime
-    from astropy import units as u
-    from astropy.coordinates import SkyCoord
-
-    barcode_list = []
-    # get the barcodes
-    # ssh dmoseng@deimosserver.keck.hawaii.edu show -s deimot MSKBAR4
-
-    # TODO make inst a parameter
-    inst = 'deimos'
-
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
-    curse = db_obj.get_dict_curse()
-
-    # TODO need to get the key installed!!
-    ssh_cmd = f"ssh kics@lrisserver.keck.hawaii.edu /kroot/rel/default/bin/configure slitname"
-    process = subprocess.Popen(ssh_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
-
-    if process.returncode != 0:
-        print(f"Error: {stderr.decode()}")
-    output = stdout.decode()
-
-    print(output)
-
-    barcode_list = [9645, 12769, 12799, 12772, 10840, 12778, 10180]
-
-    # masks are 2-12
-    # for i in range(2, 13):
-    #     ssh_cmd = f"ssh dmoseng@deimosserver.keck.hawaii.edu show -s deimot MSKBAR{i}"
-    #     process = subprocess.Popen(ssh_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    #     stdout, stderr = process.communicate()
-    #
-    #     # Check for errors
-    #     if process.returncode != 0:
-    #         print(f"Error: {stderr.decode()}")
-    #         continue
-    #     output = stdout.decode()
-    #     barcode = output.split('=')[1].strip()
-    #     try:
-    #         barcode_list.append(int(barcode))
-    #     except ValueError as err:
-    #         print(f"Error: {err}")
-    #
-    #     print(barcode)
-
-    starlist_info = []
-    for barcode in barcode_list:
-        if not do_query('barcode_to_pointing', curse, (barcode, )):
-            return create_response(success=0, err='Database Error!', stat=503)
-
-        results = gen_utils.get_dict_result(curse)
-        if len(results) < 1 or 'ra_pnt' not in results[0] or 'dec_pnt' not in results[0]:
-            print(f"no results found for barcode: {barcode}")
-            continue
-
-        dec_deg = results[0]['dec_pnt']
-        ra_deg = results[0]['ra_pnt']
-        try:
-            c = SkyCoord(ra=ra_deg * u.degree, dec=dec_deg * u.degree, frame='icrs')
-            c.to_string('hmsdms')
-            ra_dec = re.sub(r'[hmds]', ':', c.to_string('hmsdms')).split(' ')
-            results[0]['ra_pnt'] = ra_dec[0]
-            results[0]['dec_pnt'] = ra_dec[1]
-            starlist_info.append(results[0])
-        except Exception as err:
-            print(f"Error: {err}")
-
-        print(results)
-        # convert ra, dec to sexa
-
-    date_str = datetime.utcnow().strftime('%Y%m%d')
-    filename = f'/tmp/{inst}_starlist_{date_str}.txt'
-    with open(filename, 'w') as fh:
-        fh.write(f"#starlist generated by masks currently ({date_str}) in {inst}")
-        for obj in starlist_info:
-            line = (f"{obj['guiname']: <16} {obj['ra_pnt'].replace(':', ' ')} "
-                    f"{obj['dec_pnt'].replace(':', ' ')} {obj['equinpnt']} "
-                    f"rotmode=pa rotdest={obj['pa_pnt']}\n")
-            fh.write(line)
-
-    return send_file(filename, as_attachment=True)
-
-    # file_response = send_file(filename, as_attachment=True)
-    #
-    # json_data = json.dumps({"success": 1, "data": starlist_info, "error": ""})
-    # json_response = jsonify({"success": 1, "data": starlist_info, "error": ""})
-    #
-    # # Set response headers
-    # response = make_response()
-    # response.headers['Content-Disposition'] = 'attachment; filename=data.json'
-    # response.headers['Content-Type'] = 'application/json'
-    #
-    # # Set response data to the combined data of the file and JSON response
-    # response.set_data(b''.join([file_response.get_data(), json_response.get_data()]))
-
-    # json_response = create_response(data=starlist_info)
-    # file_response = send_file(filename, as_attachment=True)
-
-    # Return both responses as a tuple
-    # return json_response, file_response
-
-
-################################################################################
 #    Mask Insert / Ingest functions
 ################################################################################
 
@@ -374,17 +155,13 @@ def upload_mdf():
 
     :return: <str> a message regarding the success or failure of loading a mask.
     """
-    # from astropy.io import fits  # Import FITS module
     if 'mask-file' not in request.files:
         return create_response(success=0, err='No file part', stat=400)
 
     mdf_file = request.files['mask-file']
-    print('FILENAME', mdf_file)
 
     if mdf_file.filename == '':
         return create_response(success=0, err='No selected MDF file', stat=400)
-
-    # mdf_file.save(f"{RAW_MDF_DIR}/{mdf_file.filename}")
 
     db_obj, user_info = init_api()
     if not db_obj:
@@ -399,6 +176,8 @@ def upload_mdf():
 
     # the MDF data map
     maps = in_fun.get_maps()
+
+    return_data = {}
 
     blue_dict = maps.bluid
     for blue_id in blue_dict.values():
@@ -418,7 +197,9 @@ def upload_mdf():
 
         # #####################################
         bad_align_msgs = bad_slits.mark_bad_slits(db_obj, blue_id, gcode_files[1])
-        print('bad', bad_align_msgs)
+        if bad_align_msgs is None:
+            return create_response(success=0, err='Error checking for bad slits!', stat=503)
+
         return_data = {'msg': 'Mask was ingested into the database.'}
         if bad_align_msgs:
             return_data['warning'] = bad_align_msgs
@@ -505,6 +286,8 @@ def get_user_mask_inventory():
 
     curse = db_obj.get_dict_curse()
     obid_col = gen_utils.get_obid_column(curse, OBS_INFO)
+    if not obid_col:
+        return create_response(success=0, err='Database Error!', stat=503)
 
     if not do_query('user_inventory', curse, (obid_col, user_info.ob_id, user_info.ob_id)):
         committed, msg = gen_utils.commitOrRollback(db_obj)
@@ -1120,9 +903,8 @@ def get_all_valid_masks():
     curse = db_obj.get_dict_curse()
     obid_col = gen_utils.get_obid_column(curse, OBS_INFO)
 
-    # TODO this is the full table,  merged with the legacy table
     full_obs_info = gen_utils.get_observer_dict(curse, OBS_INFO)
-    if not full_obs_info:
+    if not full_obs_info or not obid_col:
         return create_response(success=0, err='Database Error!', stat=503)
 
     if not do_query('mask_valid', curse, (obid_col, )):
@@ -1299,11 +1081,6 @@ def get_mask_detail():
 
     ############################
 
-    # TODO this can be query by design pid
-    # query the Design Author from Observers
-    # keck_obs_info = gen_utils.get_observer_dict(curse, OBS_INFO)
-    # results = [obsvr for obsvr in keck_obs_info if obsvr['obid'] == design_pid]
-
     results = gen_utils.get_obs_by_maskid(curse, design_pid, OBS_INFO)
     if not results:
         return create_response(success=0, err='Database Error!', stat=503)
@@ -1360,11 +1137,6 @@ def get_mask_detail():
         ########################
 
         # query the Blueprint Observer from Observers
-
-        # TODO this can be changed to query by bluid
-        # keck_obs_info = gen_utils.get_observer_dict(curse, OBS_INFO)
-        # results = [obsvr for obsvr in keck_obs_info if obsvr['obid'] == blupid]
-
         results = gen_utils.get_obs_by_maskid(curse, design_pid, OBS_INFO)
         if not results:
             return create_response(success=0, err='Database Error!', stat=503)
@@ -1395,6 +1167,212 @@ def get_mask_detail():
         result_list += [['Blue Mask', gen_utils.get_dict_result(curse)]]
 
     return create_response(data=result_list)
+
+
+# TODO work in progress
+################################################################################
+#    Masks in the instruments
+################################################################################
+# TODO requires ssh-ing to lrisserver
+@app.route("/slitmask/mask-starlist", methods=['GET'])
+def deimos_mask_starlist():
+    """
+    /kroot/rel/default/bin/barcodes
+        [dmoseng@polo ~]$ show -s deimot MSKBAR2
+                            MSKBAR2 = 9645
+
+    [dbadmin@vm-hqslitmaskdb01 src]$ ssh dmoseng@deimosserver.keck.hawaii.edu show -s deimot MSKBAR4
+                       MSKBAR4 = 12799
+
+
+    get guiname:
+        check inventory -- this can be to the new database - script = 'inventory'
+            bash-4.2$ inventory s | grep 4340
+            guiname=westph_L barcode=4340     id=15764
+
+            \
+            metabase=# select * from mask where bluid=15764;
+         maskid |   guiname    | shiptopid | shiptodate | tooldiam | toolangl | milltemp | ncagent | millid | bluid | millbypid |      milldate       | millqual | maskexp | stamp | millseq | status | shipid | bmf
+        --------+--------------+-----------+------------+----------+----------+----------+---------+--------+-------+-----------+---------------------+----------+---------+-------+---------+--------+--------+-----
+           4340 | westph_L     |           |            |          |          |          |         |      2 | 15764 |           | 2022-03-06 15:26:00 |          |       0 |       | YH      |      0 |      0 |   0
+        (1 row)
+
+
+    get RA, Dec, Equinox
+
+      # grab database entries for name, ra, dec, equinox, PA...
+          $_ = `barcode2radec $barcode`;
+          @fields = split();
+
+    if needed convert coords to sexa
+      # given decimal number, convert to sexagesimal equivalent
+
+
+    :return:
+    :rtype:
+
+    <name> HH MM SS.SSS DD mm ss.sss EPOCH Rot-Mode Position Angle
+    guiname RA          Dec          equipnt rotmode=pa rotdest=<pa_pnt>
+    """
+
+    """
+
+    bash-3.2$ barcodes | awk 'NR<2 || /long/ || /direct/ || /focus/ || /GOH/ || /INDEF/{next}{print substr( $3 , 9, 4)}'
+        The authenticity of host 'deimos (128.171.136.181)' can't be established.
+        RSA key fingerprint is 67:41:4d:55:4a:1e:93:2c:a0:74:88:c2:5c:83:56:2f.
+        Are you sure you want to continue connecting (yes/no)? yes
+        Warning: Permanently added 'deimos,128.171.136.181' (RSA) to the list of known hosts.
+        kics@deimos's password: 
+        4587
+        4588
+        4584
+        4586
+        4604
+        4592
+
+            LRIS
+            bash-3.2$ less /kroot/rel/default/bin/barcodes
+
+            bash-3.2$ /kroot/rel/default/bin/configure slitname
+        Value aliases for slitname:
+              long_1.0 = 2
+              long_1.5 = 4
+              co_n2.fi = 6
+              direct = 1
+              gws_d4ns = 9
+              RMJ1327B = 10
+              GOH_LRIS = 5
+              gn_n1.fi = 7
+              gn_n2.fi = 8
+              co_n1.fi = 3
+
+      ----
+
+      # get current masks in LRIS
+      kics@lrisserver: /kroot/rel/default/bin/configure slitname
+
+
+        nameval - binary
+
+        Value aliases for slitname:
+              long_1.0 = 2
+              long_1.5 = 4
+              co_n2.fi = 6
+              direct = 1
+              gws_d4ns = 9
+              RMJ1327B = 10
+              GOH_LRIS = 5
+              gn_n1.fi = 7
+              gn_n2.fi = 8
+              co_n1.fi = 3
+
+
+        bash-3.2$ barcodes
+        kics@deimos's password: 
+        pos=1 name=direct barcode=5920
+        pos=2 name=long_1.0 barcode=5116
+        pos=3 name=co_n1.fi barcode=4587
+        pos=4 name=long_1.5 barcode=5117
+        pos=5 name=GOH_LRIS barcode=1523
+        pos=6 name=co_n2.fi barcode=4588
+        pos=7 name=gn_n1.fi barcode=4584
+        pos=8 name=gn_n2.fi barcode=4586
+        pos=9 name=gws_d4ns barcode=4604
+        pos=10 name=RMJ1327B barcode=4592
+
+    """
+    import re
+    import subprocess
+    from datetime import datetime
+    from astropy import units as u
+    from astropy.coordinates import SkyCoord
+
+    barcode_list = []
+    # get the barcodes
+    # ssh dmoseng@deimosserver.keck.hawaii.edu show -s deimot MSKBAR4
+
+    # TODO make inst a parameter
+    inst = 'deimos'
+
+    db_obj, user_info = init_api()
+    if not user_info:
+        return redirect(LOGIN_URL)
+
+    curse = db_obj.get_dict_curse()
+
+    # TODO need to get the key installed!!
+    ssh_cmd = f"ssh kics@lrisserver.keck.hawaii.edu /kroot/rel/default/bin/configure slitname"
+    process = subprocess.Popen(ssh_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+
+    if process.returncode != 0:
+        print(f"Error: {stderr.decode()}")
+    output = stdout.decode()
+
+    print(output)
+
+    barcode_list = [9645, 12769, 12799, 12772, 10840, 12778, 10180]
+
+    # masks are 2-12
+    # for i in range(2, 13):
+    #     ssh_cmd = f"ssh dmoseng@deimosserver.keck.hawaii.edu show -s deimot MSKBAR{i}"
+    #     process = subprocess.Popen(ssh_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    #     stdout, stderr = process.communicate()
+    #
+    #     # Check for errors
+    #     if process.returncode != 0:
+    #         print(f"Error: {stderr.decode()}")
+    #         continue
+    #     output = stdout.decode()
+    #     barcode = output.split('=')[1].strip()
+    #     try:
+    #         barcode_list.append(int(barcode))
+    #     except ValueError as err:
+    #         print(f"Error: {err}")
+    #
+    #     print(barcode)
+
+    starlist_info = []
+    for barcode in barcode_list:
+        if not do_query('barcode_to_pointing', curse, (barcode,)):
+            return create_response(success=0, err='Database Error!', stat=503)
+
+        results = gen_utils.get_dict_result(curse)
+        if len(results) < 1 or 'ra_pnt' not in results[0] or 'dec_pnt' not in results[0]:
+            print(f"no results found for barcode: {barcode}")
+            continue
+
+        dec_deg = results[0]['dec_pnt']
+        ra_deg = results[0]['ra_pnt']
+        try:
+            c = SkyCoord(ra=ra_deg * u.degree, dec=dec_deg * u.degree, frame='icrs')
+            c.to_string('hmsdms')
+            ra_dec = re.sub(r'[hmds]', ':', c.to_string('hmsdms')).split(' ')
+            results[0]['ra_pnt'] = ra_dec[0]
+            results[0]['dec_pnt'] = ra_dec[1]
+            starlist_info.append(results[0])
+        except Exception as err:
+            print(f"Error: {err}")
+
+        print(results)  # convert ra, dec to sexa
+
+    date_str = datetime.utcnow().strftime('%Y%m%d')
+    filename = f'/tmp/{inst}_starlist_{date_str}.txt'
+    with open(filename, 'w') as fh:
+        fh.write(f"#starlist generated by masks currently ({date_str}) in {inst}")
+        for obj in starlist_info:
+            line = (f"{obj['guiname']: <16} {obj['ra_pnt'].replace(':', ' ')} "
+                    f"{obj['dec_pnt'].replace(':', ' ')} {obj['equinpnt']} "
+                    f"rotmode=pa rotdest={obj['pa_pnt']}\n")
+            fh.write(line)
+
+    return send_file(filename, as_attachment=True)
+
+    # file_response = send_file(filename, as_attachment=True)  #  # json_data = json.dumps({"success": 1, "data": starlist_info, "error": ""})  # json_response = jsonify({"success": 1, "data": starlist_info, "error": ""})  #  # # Set response headers  # response = make_response()  # response.headers['Content-Disposition'] = 'attachment; filename=data.json'  # response.headers['Content-Type'] = 'application/json'  #  # # Set response data to the combined data of the file and JSON response  # response.set_data(b''.join([file_response.get_data(), json_response.get_data()]))
+
+    # json_response = create_response(data=starlist_info)  # file_response = send_file(filename, as_attachment=True)
+
+    # Return both responses as a tuple  # return json_response, file_response
 
 
 if __name__ == '__main__':
