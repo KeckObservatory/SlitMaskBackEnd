@@ -18,9 +18,8 @@ from gnuplot5 import *
 from mask_constants import MASK_ADMIN, RECENT_NDAYS
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
-# from mysql_utils import query_observers
-
 from collections import OrderedDict
+
 
 def start_up(app_path, config_name='catalog_config.ini'):
     config_filename = config_name
@@ -59,6 +58,18 @@ def get_userinfo(obs_info):
 
 
 def get_obs_by_maskid(curse, observer_id, obs_info_url, obid=None):
+    """
+    get the observer information from mask OBID,  this can be either KeckID or
+    the legacy OBID.  If OBID,  need keckID to get the keck observer information
+    from the Keck observer table.
+
+    :param curse: <obj> the database cursor object.
+    :param observer_id: <int> the observer ID,  either legacy OBID or KeckID
+    :param obs_info_url: <dict> the schedule API url to query the keck (mysql) observer table.
+    :param obid: <int> legacy psql OBID,   if known (used on recurse).
+
+    :return:
+    """
 
     try:
         observer_id = int(observer_id)
@@ -83,8 +94,6 @@ def get_obs_by_maskid(curse, observer_id, obs_info_url, obid=None):
 
     # if id is a legacy mask ID (obid) < 1000
     if not do_query('keckid_from_obid', curse, (observer_id,)):
-        print('here we are2')
-
         return None
 
     observer_keck_id = get_dict_result(curse)
@@ -171,9 +180,15 @@ def get_obid_column(curse, obs_info_url):
     return obid_column
 
 
-
-
 def is_admin(user_info, log):
+    """
+    Check if the logged in user is defined as an admin.
+
+    :param user_info:
+    :param log: <obj> the UserInfo instance
+
+    :return: <bool> True if user is Admin
+    """
     if user_info.user_type != MASK_ADMIN:
         msg = f'User: {user_info.keck_id} with access level: ' \
               f'{user_info.user_type} is Unauthorized!'
@@ -198,11 +213,17 @@ def do_query(query_name, curse, query_params, query=None):
 
 
 def get_dict_result(curse):
+    """
+    Return the results from the database cursor as a python dict.
+
+    :param curse: <obj> the database cursor.
+
+    :return: <dict> the database query results
+    """
     if not curse.description:
         return []
     column_names = [desc[0] for desc in curse.description]
     return [dict(zip(column_names, row)) for row in curse.fetchall()]
-
 
 
 def get_cfg(config, section, param_name):
@@ -311,51 +332,6 @@ def get_recent_day(request):
     return recent_date
 
 
-# import matplotlib.pyplot as plt
-
-# def generate_svg_plot(results):
-#     import matplotlib.pyplot as plt
-#
-#     # Create a new figure
-#     fig, ax = plt.subplots()
-#
-#     # Loop over all slitlets
-#     for row in results:
-#         bad = row['bad']
-#         slittyp = row['slittyp']
-#         dslitid = row['dslitid']
-#         x = [row['slitx1'], row['slitx2'], row['slitx3'], row['slitx4'], row['slitx1']]
-#         y = [row['slity1'], row['slity2'], row['slity3'], row['slity4'], row['slity1']]
-#
-#         # Draw each slitlet
-#         if bad:
-#             ax.plot(x, y, color='red', label=dslitid, linewidth=2)  # Adjust linewidth as needed
-#         elif slittyp == 'P':
-#             ax.plot(x, y, color='blue', label=dslitid, linewidth=2)  # Adjust linewidth as needed
-#         elif slittyp == 'A':
-#             ax.plot(x, y, color='cyan', label=dslitid, linewidth=2)  # Adjust linewidth as needed
-#         elif slittyp == 'C':
-#             ax.fill(x, y, color='green', label=dslitid, linewidth=2)  # Adjust linewidth as needed
-#         elif slittyp == 'L':
-#             ax.plot(x, y, color='magenta', label=dslitid, linewidth=2)  # Adjust linewidth as needed
-#         elif slittyp == 'G':
-#             ax.plot(x, y, color = '#FFA500', label=dslitid, linewidth=2)  # Adjust linewidth as needed
-#         else:
-#             ax.plot(x, y, color='grey', label=dslitid, linewidth=2)  # Adjust linewidth as needed
-#
-#     # Set plot title and labels if needed
-#     ax.set_title('Plot Title - Change me')
-#     ax.set_xlabel('X-axis Label')
-#     ax.set_ylabel('Y-axis Label')
-#
-#     # Save the plot as an SVG file
-#     svgfn = './plot.svg'
-#     plt.savefig(svgfn, format='svg')
-#
-#     return svgfn, fig.get_size_inches()[0], fig.get_size_inches()[1]
-
-
-# def generate_svg_plot(results, instrume, bluid, bluname, guiname):
 def generate_svg_plot(user_info, info_results, slit_results, bluid):
 
     instrume = info_results[0]['instrume']
@@ -431,7 +407,36 @@ def generate_svg_plot(user_info, info_results, slit_results, bluid):
     plot_file_name = svgfn.replace('gnup', 'svg')
     return plot_file_name, svgx, svgy
 
-# TODO add order observer information
+
+def get_keck_obs_info(obs_info_url, url_params=None):
+    """
+    Performs a an API query
+    """
+    log = log_fun.get_log()
+
+    url = f"{obs_info_url['info_url']}"
+    if url_params:
+        url += f"?{url_params}"
+
+    # Make a GET request to the API endpoint
+    response = requests.get(url, verify=False)
+
+    try:
+        observer_dict = response.json()
+        if not observer_dict:
+            log.warning(f'no observer found for {url_params} {observer_dict}')
+            return None
+    except Exception as err:
+        print(f'error accessing url: {url}')
+        return None
+
+    return observer_dict
+
+
+################################################################################
+# functions used to name and order the table columns
+################################################################################
+
 
 def order_mask_design(results):
 
@@ -517,27 +522,3 @@ def order_search_results(results):
 
     return new_results
 
-
-def get_keck_obs_info(obs_info_url, url_params=None):
-    """
-    Performs a an API query
-    """
-    log = log_fun.get_log()
-
-    url = f"{obs_info_url['info_url']}"
-    if url_params:
-        url += f"?{url_params}"
-
-    # Make a GET request to the API endpoint
-    response = requests.get(url, verify=False)
-
-    try:
-        observer_dict = response.json()
-        if not observer_dict:
-            log.warning(f'no observer found for {url_params} {observer_dict}')
-            return None
-    except Exception as err:
-        print(f'error accessing url: {url}')
-        return None
-
-    return observer_dict
