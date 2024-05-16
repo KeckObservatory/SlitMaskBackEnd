@@ -2,7 +2,7 @@ import sys
 import smtplib
 import datetime
 import subprocess
-import pymysql.cursors
+# import pymysql.cursors
 
 from os import path
 from email.utils import formatdate

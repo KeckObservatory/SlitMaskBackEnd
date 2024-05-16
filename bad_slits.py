@@ -172,7 +172,7 @@ def parseF2n(f2npath):
 
             else:
                 msg = 'incident %s does not have severity' % (incinum,)
-                log.warning( msg )
+                log.warning(msg)
                 continue
 
             # Historically this program has ignored incisev other than 'error'
@@ -226,7 +226,7 @@ def parseF2n(f2npath):
             # we have processed all of the content of this incident
             # so now we can stuff its info into the return structures
             if incisev in ['error',]:
-                bad_slit_info['msg_list'].append(incibslitid)
+                bad_slit_info['msg_list'].append(f'unmillable slit: {incibslitid}')
                 bad_slit_info['bad_text'][incibslitid] = incitextlist
                 bad_slit_info['bad_vert'][incibslitid] = incivertlist
 

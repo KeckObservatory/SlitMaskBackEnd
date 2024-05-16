@@ -29,34 +29,17 @@ hostname = socket.gethostname()
 
 ########################################################
 
-if hostname == "geneva.ucolick.org":
-    host        = "localhost"
-    port        = 5432
-    dbname      = "metabase"
-    dbuser      = 'masklogin'
-    pwdict      = {
-        'masklogin'         : 'notreallythelpwd',
-        'maskreader'        : 'notreallytherpwd',
-        'maskuser'          : 'notreallytheupwd',
-        'maskchecker'       : 'notreallythecpwd',
-        'maskmiller'        : 'notreallythempwd',
-        'maskadmin'         : 'notreallytheapwd',
-    }
-    dbpasw      = pwdict[dbuser]
-else:
-    # host        = "vm-hqslitmaskdb01.keck.hawaii.edu"
-    host = "localhost"
-    port = 5432
-    dbname = "metabase"
-    dbuser = 'masklogin'
-    pwdict = {
-        'masklogin': 'plate2sda',
-        'maskreader': 'plate2sda',
-        'maskuser': 'plate2sda',
-        'maskchecker': 'plate2sda',
-        'maskmiller': 'plate2sda',
-        'maskadmin': 'plate2sda',
-        'dbadmin': 'plate2sda',
-    }
-    dbpasw = pwdict[dbuser]
-# end if
+host = "localhost"
+port = 5432
+dbname = "metabase"
+dbuser = 'masklogin'
+pwdict = {
+    'masklogin': '',
+    'maskreader': '',
+    'maskuser': '',
+    'maskchecker': '',
+    'maskmiller': '',
+    'maskadmin': '',
+    'dbadmin': '',
+}
+dbpasw = pwdict[dbuser]

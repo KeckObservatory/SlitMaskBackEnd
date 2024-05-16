@@ -183,7 +183,12 @@ def upload_mdf():
     for blue_id in blue_dict.values():
 
         # run dbmaskout inorder to get the mask_fits file for the gcode
-        maskout_files = dbmaskout_runner(blue_id)
+        try:
+            maskout_files = dbmaskout_runner(blue_id)
+        except Exception as err:
+            log.error(f"error running dbMaskOut, {blue_id}, {err}")
+            maskout_files = None
+
         if not maskout_files:
             msg = "error creating the mask description file"
             return create_response(success=0, err=f'{msg}', stat=401)
@@ -193,7 +198,7 @@ def upload_mdf():
         # create the mill / gcode files [gcodepath, f2nlogpath]
         gcode_files = gcode_runner(blue_id, mask_fits_filename)
         if not gcode_files or len(gcode_files) < 2:
-            create_response(success=0, stat=401, err=f'There was a problem checking for bad slits!')
+            return create_response(success=0, stat=401, err=f'There was a problem checking for bad slits!')
 
         # #####################################
         bad_align_msgs = bad_slits.mark_bad_slits(db_obj, blue_id, gcode_files[1])
@@ -583,7 +588,12 @@ def mill_files():
                                err=f'The mask blueprint ID, blue-id is required!')
 
     # run dbmaskout inorder to get the mask_fits file
-    maskout_files = dbmaskout_runner(blue_id)
+    try:
+        maskout_files = dbmaskout_runner(blue_id)
+    except Exception as err:
+        log.error(f"error running dbMaskOut, {blue_id}, {err}")
+        maskout_files = None
+
     if not maskout_files:
         msg = "error creating the mask description file"
         return create_response(success=0, err=f'{msg}', stat=401)
@@ -633,6 +643,7 @@ def gcode_runner(blue_id, mask_fits_filename):
     STDOUT = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.out", 'w+')
     STDERR = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.err", 'w')
 
+    print(f'fits parmas {fits2ncc} {TOOL_DIAMETER} {mask_fits_filename}')
     # call external function fits2ncc
     status = subprocess.call(
         [fits2ncc, f"{TOOL_DIAMETER}", f"{mask_fits_filename}"],
@@ -1046,7 +1057,7 @@ def get_mask_detail():
 
     design_id = request.args.get('design-id')
     if not design_id:
-        return create_response(success=0, stat=401,
+        return create_response(success=0, stat=422,
                                err=f'design-id is a required parameter')
 
     curse = db_obj.get_dict_curse()
@@ -1069,7 +1080,7 @@ def get_mask_detail():
     if not mask_design_results:
         msg = f"DesId {design_id} does not exist in table MaskDesign"
         log.warning(msg)
-        return create_response(success=0, err=msg, stat=200)
+        return create_response(success=0, err=msg, stat=422)
 
     # there should be exactly one result row
     design_pid = mask_design_results[0]['despid']

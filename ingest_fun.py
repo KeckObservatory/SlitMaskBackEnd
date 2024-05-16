@@ -209,8 +209,8 @@ class IngestFun:
         try:
             hdul = fits.open(file)
         except Exception as e:
-            msg = f"could not open file {file}: exception: {e}"
-            self.log.error(msg)
+            msg = f"could not open file: {file.filename}: check that it is a FITS file!"
+            self.log.error(f"{msg}: exception: {e} ")
             return False, [msg]
 
         # validate the structure and content of the file

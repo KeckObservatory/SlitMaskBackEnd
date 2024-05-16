@@ -5,7 +5,7 @@
 from mask_constants import MASK_ADMIN, MASK_USER, MASK_LOGIN, USER_TYPE_STR
 
 # protected file with database names and passwords
-import wspgcfg
+import wspgcfg_live as wspgcfg
 
 # parent class
 from pgconn import PgConn

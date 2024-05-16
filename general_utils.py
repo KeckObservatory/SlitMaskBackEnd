@@ -22,6 +22,14 @@ from collections import OrderedDict
 
 
 def start_up(app_path, config_name='catalog_config.ini'):
+    """
+    The API start up configuration.
+
+    :param app_path: <str> the path that the api is running
+    :param config_name: <str> name of the config file.
+
+    :return: config as an object, and the initialized log.
+    """
     config_filename = config_name
 
     config_file = f'{app_path}/{config_filename}'
