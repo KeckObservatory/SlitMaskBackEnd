@@ -12,6 +12,10 @@ from psycopg2.extras import Json
 from flask_cors import CORS
 from flask import Flask, request, jsonify, make_response, redirect, send_file, Response
 
+import re
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+
 import bad_slits
 import apiutils as utils
 import general_utils as gen_utils
@@ -198,12 +202,17 @@ def upload_mdf():
         # create the mill / gcode files [gcodepath, f2nlogpath]
         gcode_files = gcode_runner(blue_id, mask_fits_filename)
         if not gcode_files or len(gcode_files) < 2:
-            return create_response(success=0, stat=401, err=f'There was a problem checking for bad slits!')
+            return create_response(
+                success=0, stat=401,
+                err=f'There was a problem checking for bad slits!'
+            )
 
         # #####################################
         bad_align_msgs = bad_slits.mark_bad_slits(db_obj, blue_id, gcode_files[1])
         if bad_align_msgs is None:
-            return create_response(success=0, err='Error checking for bad slits!', stat=503)
+            return create_response(
+                success=0, stat=503, err='Error checking for bad slits!'
+            )
 
         return_data = {'msg': 'Mask was ingested into the database.'}
         if bad_align_msgs:
@@ -331,8 +340,10 @@ def get_mask_plot():
     design_id = request.args.get('design-id')
 
     if not blue_id and not design_id:
-        return create_response(success=0, stat=401,
-                               err=f'One of blue-id or design-id are required!')
+        return create_response(
+            success=0, stat=401,
+            err=f'One of blue-id or design-id are required!'
+        )
 
     if user_info.user_type not in (MASK_ADMIN, MASK_USER):
         msg = f'User: {user_info.keck_id} with access: {user_info.user_type} ' \
@@ -643,7 +654,6 @@ def gcode_runner(blue_id, mask_fits_filename):
     STDOUT = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.out", 'w+')
     STDERR = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.err", 'w')
 
-    print(f'fits parmas {fits2ncc} {TOOL_DIAMETER} {mask_fits_filename}')
     # call external function fits2ncc
     status = subprocess.call(
         [fits2ncc, f"{TOOL_DIAMETER}", f"{mask_fits_filename}"],
@@ -657,7 +667,6 @@ def gcode_runner(blue_id, mask_fits_filename):
 
     f2nlogpath = ''
     gcodepath = ''
-
 
     # rewind the stdout from fits2ncc script
     STDOUT.seek(0)
@@ -762,7 +771,7 @@ def remill_mask():
           f'marked to be remilled,  new use date={new_use_date}' \
           f'\n\nThe following email addresses have been notified: {email_list}'
 
-    #TODO update to use email_list once ready (will email PIs)
+    # TODO update to use email_list once ready (will email PIs)
     EMAIL_INFO['to_list'] = [EMAIL_INFO['admin']]
     utils.send_email(msg, EMAIL_INFO, subject)
 
@@ -1184,6 +1193,74 @@ def get_mask_detail():
 ################################################################################
 #    Masks in the instruments
 ################################################################################
+@app.route("/slitmask/barcodes-starlist", methods=['GET'])
+def barcode_to_starlist():
+    """
+    input an array of barcodes and return a starlist with one entry per barcode.
+
+    :return: <JSON array> one starlist line per array element
+    """
+    db_obj, user_info = init_api()
+    if not user_info:
+        return redirect(LOGIN_URL)
+
+    barcode_list_param = request.args.get('barcode-list')
+    if not barcode_list_param:
+        return create_response(success=0, stat=422,
+                               err=f'barcode-list is a required parameter')
+
+    # parse the JSON
+    try:
+        barcode_list = json.loads(barcode_list_param)
+        barcode_list = [int(barcode) for barcode in barcode_list]
+    except (json.JSONDecodeError, ValueError):
+        return create_response(success=0, stat=400, err=f'Invalid JSON,  barcode-list.')
+
+    curse = db_obj.get_dict_curse()
+
+    # TODO TMP
+    # barcode_list = [9645, 12769, 12799, 12772, 10840, 12778, 10180]
+
+    starlist_info = []
+    for barcode in barcode_list:
+        if not do_query('barcode_to_pointing', curse, (barcode,)):
+            return create_response(success=0, err='Database Error!', stat=503)
+
+        results = gen_utils.get_dict_result(curse)
+        if len(results) < 1 or 'ra_pnt' not in results[0] or 'dec_pnt' not in results[0]:
+            print(f"no results found for barcode: {barcode}")
+            continue
+
+        dec_deg = results[0]['dec_pnt']
+        ra_deg = results[0]['ra_pnt']
+        try:
+            c = SkyCoord(ra=ra_deg * u.degree, dec=dec_deg * u.degree, frame='icrs')
+            c.to_string('hmsdms')
+            ra_dec = re.sub(r'[hmds]', ':', c.to_string('hmsdms')).split(' ')
+            results[0]['ra_pnt'] = ra_dec[0]
+            results[0]['dec_pnt'] = ra_dec[1]
+            starlist_info.append(results[0])
+        except Exception as err:
+            print(f"Error: {err}")
+
+    date_str = datetime.utcnow().strftime('%Y%m%d')
+    starlist_rows = []
+
+    starlist_rows.append(f"#starlist generated by masks currently ({date_str}) in LRIS")
+    starlist_rows.append(f"#Slitmask name   HH MM SS.SSS  DD mm ss.sss EPOCH   Rot-Mode   Position Angle ")
+
+    for obj in starlist_info:
+        line = (f"{obj['guiname']: <16} {obj['ra_pnt'].replace(':', ' ')} "
+                f"{obj['dec_pnt'].replace(':', ' ')} {obj['equinpnt']} "
+                f"rotmode=pa rotdest={obj['pa_pnt']}\n")
+        starlist_rows.append(line)
+
+    return create_response(data=starlist_rows)
+
+
+
+
+
 # TODO requires ssh-ing to lrisserver
 @app.route("/slitmask/mask-starlist", methods=['GET'])
 def deimos_mask_starlist():
@@ -1414,6 +1491,9 @@ if __name__ == '__main__':
     RAW_MDF_DIR = gen_utils.get_cfg(config, 'file_store', 'raw_mdf')
 
     api_port = gen_utils.get_cfg(config, 'api_parameters', 'port')
+
+    # restrict to 100 MB
+    app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
     app.run(host='0.0.0.0', port=api_port)
 
 

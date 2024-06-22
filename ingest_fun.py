@@ -221,9 +221,13 @@ class IngestFun:
             err_report = [msg]
             valid = False
 
-        # TODO save fits file
-        # print(f'saving {save_path}')
-        # hdul.writeto(save_path)
+        # save file
+        try:
+            hdul.writeto(save_path, overwrite=True)
+        except Exception as err:
+            # TODO log this?  is this okay,  when does this happen?
+            err_report.append(f'Error saving file: {err}')
+            valid = False
 
         if not valid:
             err_report.append(f"did not insert because file had problems")
