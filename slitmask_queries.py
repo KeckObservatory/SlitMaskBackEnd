@@ -35,13 +35,6 @@ ownership_queries = {
 
 
 retrieval_queries = {
-    "barcode_to_pointing": f"""
-        SELECT mb.bluid, mb.desid, mb.guiname, md.ra_pnt, md.dec_pnt, md.equinpnt, md.pa_pnt
-        FROM maskblu mb 
-        JOIN mask m ON mb.bluid = m.bluid 
-        JOIN maskdesign md ON mb.desid = md.desid 
-        WHERE m.maskid = %s;
-                    """,
     "mill": f"""
         SELECT b.BluId, b.status, b.Date_Use, b.stamp, b.GUIname,
                b.millseq, d.desid, d.desnslit, d.desname, d.instrume
@@ -411,13 +404,13 @@ ingest_queries = {
         """,
 
     "slit_target_insert": """
-        INSERT into slitobjmap (
+        INSERT INTO slitobjmap (
             DesId,
             ObjectId,
             dSlitId,
             TopDist,
             BotDist
-        ) values (
+        ) VALUES (
             %s, %s, %s, %s, %s
         )
         """
@@ -430,9 +423,49 @@ validate_queries = {
         SELECT d.DesId, d.dSlitId, d.slitWid, d.slitLen, d.slitLPA, 
                 d.slitWPA, b.bSlitId from DesiSlits d, BluSlits b 
         WHERE d.slitTyp = 'A' 
-        AND d.DesId = (select DesId from MaskBlu where BluId = %s) 
-        AND b.dSlitId = d.dSlitId and b.BluId = %s
+            AND d.DesId = (select DesId from MaskBlu where BluId = %s) 
+            AND b.dSlitId = d.dSlitId and b.BluId = %s
         """
+}
+
+auxiliary_queries = {
+    "barcode_to_pointing": f"""
+        SELECT mb.bluid, mb.desid, mb.guiname, md.ra_pnt, md.dec_pnt, 
+               md.equinpnt, md.pa_pnt
+        FROM maskblu mb 
+        JOIN mask m ON mb.bluid = m.bluid 
+        JOIN maskdesign md ON mb.desid = md.desid 
+        WHERE m.maskid = %s;
+        """,
+    "guiname_to_pointing": f"""
+        SELECT mb.bluid, mb.desid, mb.guiname, md.ra_pnt, md.dec_pnt, 
+               md.equinpnt, md.pa_pnt
+        FROM maskblu mb 
+        JOIN mask m ON mb.bluid = m.bluid 
+        JOIN maskdesign md ON mb.desid = md.desid 
+        WHERE mb.guiname = %s;
+        """,
+    "sias_type1": """
+        SELECT b.date_use,c.maskid,b.guiname,a.instrume,d.lastnm,
+              d.firstnm,b.bluid 
+        FROM MaskDesign a, MaskBlu b, Mask c, observers d 
+        WHERE date_use>= %s 
+            AND date_use <= %s 
+            AND (b.status<9 OR b.status IS NULL) 
+            AND c.bluid=b.bluid 
+            AND a.desid=b.desid 
+            AND d.obid=b.blupid 
+        ORDER BY date_use
+          """,
+    "sias_type2": """
+        SELECT b.date_use,b.guiname,a.instrume,c.lastnm,c.firstnm,b.bluid 
+        FROM MaskDesign a, MaskBlu b, observers c 
+        WHERE date_use >= %s AND date_use <= %s
+            AND (b.status<9 or b.status is null) 
+            AND a.desid=b.desid and c.obid=b.blupid 
+            AND NOT exists (SELECT * FROM Mask WHERE bluid=b.bluid) 
+            ORDER BY date_use
+    """
 }
 
 
@@ -457,6 +490,9 @@ def get_query(query_key):
 
     if not query_str:
         query_str = validate_queries.get(query_key)
+
+    if not query_str:
+        query_str = auxiliary_queries.get(query_key)
 
     if not query_str:
         return None

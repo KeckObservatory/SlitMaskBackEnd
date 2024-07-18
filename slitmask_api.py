@@ -19,6 +19,7 @@ from astropy.coordinates import SkyCoord
 import bad_slits
 import apiutils as utils
 import general_utils as gen_utils
+from slitmask_queries import get_query
 import admin_search_utils as search_utils
 
 from wspgconn import WsPgConn
@@ -118,13 +119,24 @@ class UserInfo:
         return results[0][0]
 
 
-def init_api():
+def init_api(keck_id=None):
     """
-    Initialize the API,  find userinformation from the stored cookies.
+    Initialize the API,  find user information from the stored cookies.
+
+    Passing in keck_id = 0 allows the user to be an ADMIN.
 
     :return: <db object, UserInfo object> the database and UserInfo objects.
             None, None - both as None on error.
     """
+    if keck_id:
+        # used to bypass login to allow for internal scripts to query
+        db_obj = WsPgConn(keck_id)
+        if not db_obj.db_connect():
+            log.error(f'could not connect to database with id: {keck_id}')
+            return None, None
+
+        return db_obj, None
+
     userinfo = gen_utils.get_userinfo(OBS_INFO)
     if not userinfo:
         return None, None
@@ -1189,20 +1201,18 @@ def get_mask_detail():
     return create_response(data=result_list)
 
 
-# TODO work in progress
 ################################################################################
 #    Masks in the instruments
 ################################################################################
-@app.route("/slitmask/barcodes-starlist", methods=['GET'])
+# TODO do not expose this route
+@app.route("/slitmask/barcode-starlist", methods=['GET'])
 def barcode_to_starlist():
     """
     input an array of barcodes and return a starlist with one entry per barcode.
 
     :return: <JSON array> one starlist line per array element
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
+    db_obj, user_info = init_api(keck_id=MASK_ADMIN)
 
     barcode_list_param = request.args.get('barcode-list')
     if not barcode_list_param:
@@ -1257,177 +1267,42 @@ def barcode_to_starlist():
 
     return create_response(data=starlist_rows)
 
-
-
-
-
-# TODO requires ssh-ing to lrisserver
-@app.route("/slitmask/mask-starlist", methods=['GET'])
-def deimos_mask_starlist():
+# TODO do not expose this route
+@app.route("/slitmask/guiname-starlist", methods=['GET'])
+def guiname_to_starlist():
     """
-    /kroot/rel/default/bin/barcodes
-        [dmoseng@polo ~]$ show -s deimot MSKBAR2
-                            MSKBAR2 = 9645
+    input an array of barcodes and return a starlist with one entry per barcode.
 
-    [dbadmin@vm-hqslitmaskdb01 src]$ ssh dmoseng@deimosserver.keck.hawaii.edu show -s deimot MSKBAR4
-                       MSKBAR4 = 12799
+    guiname-list=["long_1.0","long_1.5","f2404_2","f2404_3","f2404_4","direct","long_0.7","RMJ1327B","GOH_LRIS","long_8.7"]
 
-
-    get guiname:
-        check inventory -- this can be to the new database - script = 'inventory'
-            bash-4.2$ inventory s | grep 4340
-            guiname=westph_L barcode=4340     id=15764
-
-            \
-            metabase=# select * from mask where bluid=15764;
-         maskid |   guiname    | shiptopid | shiptodate | tooldiam | toolangl | milltemp | ncagent | millid | bluid | millbypid |      milldate       | millqual | maskexp | stamp | millseq | status | shipid | bmf
-        --------+--------------+-----------+------------+----------+----------+----------+---------+--------+-------+-----------+---------------------+----------+---------+-------+---------+--------+--------+-----
-           4340 | westph_L     |           |            |          |          |          |         |      2 | 15764 |           | 2022-03-06 15:26:00 |          |       0 |       | YH      |      0 |      0 |   0
-        (1 row)
-
-
-    get RA, Dec, Equinox
-
-      # grab database entries for name, ra, dec, equinox, PA...
-          $_ = `barcode2radec $barcode`;
-          @fields = split();
-
-    if needed convert coords to sexa
-      # given decimal number, convert to sexagesimal equivalent
-
-
-    :return:
-    :rtype:
-
-    <name> HH MM SS.SSS DD mm ss.sss EPOCH Rot-Mode Position Angle
-    guiname RA          Dec          equipnt rotmode=pa rotdest=<pa_pnt>
+    :return: <JSON array> one starlist line per array element
     """
+    db_obj, user_info = init_api(keck_id=MASK_ADMIN)
 
-    """
+    guiname_list_param = request.args.get('guiname-list')
+    if not guiname_list_param:
+        return create_response(
+            success=0, stat=422, err=f'guiname-list is a required parameter'
+        )
 
-    bash-3.2$ barcodes | awk 'NR<2 || /long/ || /direct/ || /focus/ || /GOH/ || /INDEF/{next}{print substr( $3 , 9, 4)}'
-        The authenticity of host 'deimos (128.171.136.181)' can't be established.
-        RSA key fingerprint is 67:41:4d:55:4a:1e:93:2c:a0:74:88:c2:5c:83:56:2f.
-        Are you sure you want to continue connecting (yes/no)? yes
-        Warning: Permanently added 'deimos,128.171.136.181' (RSA) to the list of known hosts.
-        kics@deimos's password: 
-        4587
-        4588
-        4584
-        4586
-        4604
-        4592
-
-            LRIS
-            bash-3.2$ less /kroot/rel/default/bin/barcodes
-
-            bash-3.2$ /kroot/rel/default/bin/configure slitname
-        Value aliases for slitname:
-              long_1.0 = 2
-              long_1.5 = 4
-              co_n2.fi = 6
-              direct = 1
-              gws_d4ns = 9
-              RMJ1327B = 10
-              GOH_LRIS = 5
-              gn_n1.fi = 7
-              gn_n2.fi = 8
-              co_n1.fi = 3
-
-      ----
-
-      # get current masks in LRIS
-      kics@lrisserver: /kroot/rel/default/bin/configure slitname
-
-
-        nameval - binary
-
-        Value aliases for slitname:
-              long_1.0 = 2
-              long_1.5 = 4
-              co_n2.fi = 6
-              direct = 1
-              gws_d4ns = 9
-              RMJ1327B = 10
-              GOH_LRIS = 5
-              gn_n1.fi = 7
-              gn_n2.fi = 8
-              co_n1.fi = 3
-
-
-        bash-3.2$ barcodes
-        kics@deimos's password: 
-        pos=1 name=direct barcode=5920
-        pos=2 name=long_1.0 barcode=5116
-        pos=3 name=co_n1.fi barcode=4587
-        pos=4 name=long_1.5 barcode=5117
-        pos=5 name=GOH_LRIS barcode=1523
-        pos=6 name=co_n2.fi barcode=4588
-        pos=7 name=gn_n1.fi barcode=4584
-        pos=8 name=gn_n2.fi barcode=4586
-        pos=9 name=gws_d4ns barcode=4604
-        pos=10 name=RMJ1327B barcode=4592
-
-    """
-    import re
-    import subprocess
-    from datetime import datetime
-    from astropy import units as u
-    from astropy.coordinates import SkyCoord
-
-    barcode_list = []
-    # get the barcodes
-    # ssh dmoseng@deimosserver.keck.hawaii.edu show -s deimot MSKBAR4
-
-    # TODO make inst a parameter
-    inst = 'deimos'
-
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
+    # parse the JSON
+    try:
+        guiname_list = json.loads(guiname_list_param)
+    except (json.JSONDecodeError, ValueError):
+        return create_response(
+            success=0, stat=400, err=f'Invalid JSON,  guiname-list.'
+        )
 
     curse = db_obj.get_dict_curse()
 
-    # TODO need to get the key installed!!
-    ssh_cmd = f"ssh kics@lrisserver.keck.hawaii.edu /kroot/rel/default/bin/configure slitname"
-    process = subprocess.Popen(ssh_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
-
-    if process.returncode != 0:
-        print(f"Error: {stderr.decode()}")
-    output = stdout.decode()
-
-    print(output)
-
-    barcode_list = [9645, 12769, 12799, 12772, 10840, 12778, 10180]
-
-    # masks are 2-12
-    # for i in range(2, 13):
-    #     ssh_cmd = f"ssh dmoseng@deimosserver.keck.hawaii.edu show -s deimot MSKBAR{i}"
-    #     process = subprocess.Popen(ssh_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    #     stdout, stderr = process.communicate()
-    #
-    #     # Check for errors
-    #     if process.returncode != 0:
-    #         print(f"Error: {stderr.decode()}")
-    #         continue
-    #     output = stdout.decode()
-    #     barcode = output.split('=')[1].strip()
-    #     try:
-    #         barcode_list.append(int(barcode))
-    #     except ValueError as err:
-    #         print(f"Error: {err}")
-    #
-    #     print(barcode)
-
     starlist_info = []
-    for barcode in barcode_list:
-        if not do_query('barcode_to_pointing', curse, (barcode,)):
+    for guiname in guiname_list:
+        if not do_query('guiname_to_pointing', curse, (guiname,)):
             return create_response(success=0, err='Database Error!', stat=503)
 
         results = gen_utils.get_dict_result(curse)
         if len(results) < 1 or 'ra_pnt' not in results[0] or 'dec_pnt' not in results[0]:
-            print(f"no results found for barcode: {barcode}")
+            print(f"no results found for guiname: {guiname}")
             continue
 
         dec_deg = results[0]['dec_pnt']
@@ -1442,25 +1317,75 @@ def deimos_mask_starlist():
         except Exception as err:
             print(f"Error: {err}")
 
-        print(results)  # convert ra, dec to sexa
-
     date_str = datetime.utcnow().strftime('%Y%m%d')
-    filename = f'/tmp/{inst}_starlist_{date_str}.txt'
-    with open(filename, 'w') as fh:
-        fh.write(f"#starlist generated by masks currently ({date_str}) in {inst}")
-        for obj in starlist_info:
-            line = (f"{obj['guiname']: <16} {obj['ra_pnt'].replace(':', ' ')} "
-                    f"{obj['dec_pnt'].replace(':', ' ')} {obj['equinpnt']} "
-                    f"rotmode=pa rotdest={obj['pa_pnt']}\n")
-            fh.write(line)
+    starlist_rows = []
 
-    return send_file(filename, as_attachment=True)
+    starlist_rows.append(f"#starlist generated by masks currently ({date_str}) in LRIS")
+    starlist_rows.append(f"#Slitmask name   HH MM SS.SSS  DD mm ss.sss EPOCH   Rot-Mode   Position Angle ")
 
-    # file_response = send_file(filename, as_attachment=True)  #  # json_data = json.dumps({"success": 1, "data": starlist_info, "error": ""})  # json_response = jsonify({"success": 1, "data": starlist_info, "error": ""})  #  # # Set response headers  # response = make_response()  # response.headers['Content-Disposition'] = 'attachment; filename=data.json'  # response.headers['Content-Type'] = 'application/json'  #  # # Set response data to the combined data of the file and JSON response  # response.set_data(b''.join([file_response.get_data(), json_response.get_data()]))
+    for obj in starlist_info:
+        line = (f"{obj['guiname']: <16} {obj['ra_pnt'].replace(':', ' ')} "
+                f"{obj['dec_pnt'].replace(':', ' ')} {obj['equinpnt']} "
+                f"rotmode=pa rotdest={obj['pa_pnt']}\n")
+        starlist_rows.append(line)
 
-    # json_response = create_response(data=starlist_info)  # file_response = send_file(filename, as_attachment=True)
+    # return in starlist format instead of JSON
+    starlist_fmt = "\n".join(starlist_rows)
 
-    # Return both responses as a tuple  # return json_response, file_response
+    # return as a starlist instead of the common JSON format
+    return starlist_fmt
+    # return create_response(data=starlist_rows)
+
+
+@app.route('/slitmask/sias', methods=["GET"])
+def sias_slitmask_info():
+    """
+
+    :return: <JSON>
+    """
+    # bypass logging in as observer useing MASKADMIN
+    db_obj, user_info = init_api(keck_id=MASK_ADMIN)
+
+    q_type = request.args.get('type')
+    date1 = request.args.get('date1')
+    date2 = request.args.get('date2')
+    if not date1 or not date2 or not q_type:
+        return create_response(
+            success=0, stat=422,
+            err=f'date1, date2, and type are required parameters'
+        )
+    if q_type not in ('1', '2'):
+        return create_response(
+            success=0, stat=422, err='type must be either 1 or 2.'
+        )
+
+    output = {}
+    curse = db_obj.get_dict_curse()
+    q_name = f'sias_type{q_type}'
+
+    if not do_query(q_name, curse, (date1, date2)):
+        return create_response(success=0, err='Database Error!', stat=503)
+
+    results = gen_utils.get_dict_result(curse)
+
+    output['query'] = get_query(q_name)
+    output['length'] = len(results)
+
+    data = []
+    for row in results:
+        entry = {}
+        for key in row.keys():
+            if 'date' in key:
+                entry[key] = row[key].strftime('%b %d %Y %M:%S')
+            else:
+                entry[key] = row[key]
+        data.append(entry)
+
+    output['status'] = 'COMPLETE'
+    output['results'] = data
+
+    return create_response(data=output)
+
 
 
 if __name__ == '__main__':

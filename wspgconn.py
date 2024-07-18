@@ -13,10 +13,13 @@ from pgconn import PgConn
 
 class WsPgConn(PgConn):
 
-    # def __init__(self, keck_id, user_email):
     def __init__(self, keck_id):
         super(WsPgConn, self).__init__()
-        self.user_type = self.set_user_type(keck_id)
+
+        if keck_id == MASK_ADMIN:
+            self.user_type = MASK_ADMIN
+        else:
+            self.user_type = self.set_user_type(keck_id)
 
     def db_connect(self):
         db_pw = wspgcfg.pwdict[USER_TYPE_STR[self.user_type]]
