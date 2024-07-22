@@ -2,7 +2,6 @@ import sys
 import smtplib
 import datetime
 import subprocess
-# import pymysql.cursors
 
 from os import path
 from email.utils import formatdate
@@ -76,6 +75,7 @@ def generate_mask_descript(blue_id, exec_dir, out_dir, KROOT):
 
 def maskStatus(db, blue_id, newstatus):
     """
+    Update the mask status.
 
     :param db: database connection object
     :param blue_id: <str> the integer of the blueprint id
@@ -318,6 +318,7 @@ def mask_user_id(db_obj, user_email, obs_info_url):
 
     :param db_obj: <obj> the database object.
     :param user_email: <str> the user email address
+    :param obs_info_url: <str> the schedule API url to get user info
 
     :return: <int> the observer ID (keck ID or legacy mask user ID)
              None - an error occurred and ID could be determined.
@@ -366,14 +367,12 @@ def chk_keck_observers(psql_db_obj, user_email, obs_info_url, log):
     Legacy Mask ID < 1000
     Keck ID > 1000
 
-    :param psql_db_obj:
-    :type psql_db_obj:
-    :param user_email:
-    :type user_email:
-    :param obs_info_url:
-    :type obs_info_url:
-    :return:
-    :rtype:
+    :param psql_db_obj: <obj> the database connection object.
+    :param user_email: <str> the email of the user
+    :param obs_info_url: <str> the schedule API url to get user info
+    :param log  <obj> the log object.
+
+    :return: <str / None> Mask ID
     """
     # query = "select * from observers where email = %s"
     url_params = f"email={user_email}"
@@ -425,7 +424,6 @@ def send_email(email_msg, email_info, subject):
                 <pre>{email_msg}</pre>
             </body>
         </html>
-
     """
 
     for email_address in email_info['to_list']:
@@ -448,10 +446,14 @@ def get_design_owner_emails(db_obj, blue_id, design_id, obs_info_url):
     """
     Compile a list of the emails associated with a mask.
 
+    The legacy mask observer IDs (obid) are all < 1000.
+
+    Keck IDs are all > 1000.
+
     :param db_obj: <obj> the psql database object.
     :param blue_id: <int> the mask blueprint ID.
     :param design_id: <int> the mask design ID.
-    :param obs_info_url: <dict> the sql server parameters
+    :param obs_info_url: <str> the schedule API url to get user info
 
     :return: <list> a list of emails as strings
     """
@@ -493,8 +495,6 @@ def get_design_owner_emails(db_obj, blue_id, design_id, obs_info_url):
             else:
                 continue
 
-        # query = "select email from observers where Id=%s"
-        # params = (pi_id, )
         url_params = f"obsid={pi_id}"
 
         results = get_keck_obs_info(obs_info_url, url_params)
@@ -505,47 +505,4 @@ def get_design_owner_emails(db_obj, blue_id, design_id, obs_info_url):
         email_list.append(results[0]['Email'])
 
     return email_list
-
-
-################################################
-# TODO currently not used
-# def isThisMyMask( db, maskid ):
-#
-#     # Is the logged in user the Blueprint Observer or the Design Author?
-#     # This can decide whether a non-admin user may modify mask records.
-#     log = log_fun.get_log()
-#     maskHumanQuery      = (
-#     "select email from Observers"
-#     " where ObId in ("
-#     " (select BluPId from MaskBlu    where BluId = (select BluId from Mask where MaskId = %s)),"
-#     " (select DesPId from MaskDesign where DesId = (select DesId from MaskBlu where BluId = (select BluId from Mask where MaskId = %s)))"
-#     " ) and email = %s;"
-#     )
-#
-#     # during development display the query
-#     print(maskHumanQuery % (maskid, maskid, db.get_user_email()))
-#
-#     try:
-#         db.cursor.execute(maskHumanQuery, (maskid, maskid, db.maskumail) )
-#     except Exception as e:
-#         log.error(
-#         "%s failed: %s: exception class %s: %s"
-#         % ('maskHumanQuery', db.cursor.query, e.__class__.__name__, e) )
-#
-#         return False
-#     # end try
-#
-#     results = db.cursor.fetchall()
-#
-#     len_results  = len(results)
-#
-#     if len_results == 0:
-#         # No, this is not my Mask
-#         return False
-#     else:
-#         # Yes, this is my Mask
-#         return True
-#
-# # end def isThisMyMask()
-
 

@@ -226,8 +226,9 @@ class IngestFun:
             hdul.writeto(save_path, overwrite=True)
         except Exception as err:
             # TODO log this?  is this okay,  when does this happen?
-            err_report.append(f'Error saving file: {err}')
-            valid = False
+            #err_report.append(f'Error saving file: {err}')
+            self.log.warning(f"Error saving file: {err}: exception: {e} ")
+            # valid = False
 
         if not valid:
             err_report.append(f"did not insert because file had problems")

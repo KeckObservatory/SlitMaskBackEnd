@@ -32,7 +32,6 @@ def mark_bad_slits(db_obj, blue_id, fn2_file_path):
     with open(one_line_file, 'w') as f:
         f.write(one_line)
 
-
     # check for badslits, returns {'bad_text': {}, 'bad_vert': {}, 'msg_list': []}
     parsed_f2n_info = parseF2n(one_line_file)
     if not parsed_f2n_info:
@@ -75,18 +74,20 @@ def parseF2n(f2npath):
     this function returns selected info about unmillable slitlets
 
     inputs:
-    f2npath      the path name of a .f2n log file
+        f2npath      the path name of a .f2n log file
 
     outputs:
-    badslitlist  a list of MaskBlu.bSlitId values of unmillable slitlets
-    badtextdict  a dictionary of text lists about why each bSlitId was unmillable
-    badvertdict  a dictionary of vertex lists for each unmillable bSlitId
+        badslitlist
+            a list of MaskBlu.bSlitId values of unmillable slitlets
+        badtextdict
+            a dictionary of text lists about why each bSlitId was unmillable
+        badvertdict
+            a dictionary of vertex lists for each unmillable bSlitId
 
     This function is the python re-creation of the original Tclx proc
-    parseF2nFile
-    except that the original Tclx code both parsed the .f2n log from
-    acpncc and simultaneously modified the slitmask database to mark
-    those unmillable MaskBlu.bSlitId records as "bad".
+    parseF2nFile except that the original Tclx code both parsed the .f2n
+    log from acpncc and simultaneously modified the slitmask database to
+    mark those unmillable MaskBlu.bSlitId records as "bad".
 
     This python re-creation merely returns the list of unmillable
     slitlets to the caller who can decide when it wants to modify the
@@ -119,7 +120,6 @@ def parseF2n(f2npath):
         usrmsg = "failed to open millcode log file"
         bad_slit_info['msg_list'].append(usrmsg)
         return bad_slit_info
-
 
     f2nlist = fileobj.read()
     fileobj.close()
@@ -293,7 +293,7 @@ def checkAlign(db, BluId):
     # In this case the lists will have only one string item,
     # but we use a list so that the return from checkAlign()
     # can be handled the same as the return from parseF2n()
-    # bad_align_info = {'bad_slits': [], 'bad_text': {}, 'bad_geo': {}}
+
     bad_align_info = {'bad_text': {}, 'bad_geo': {}, 'msg_list': []}
 
     curse = db.get_dict_curse()
@@ -366,17 +366,19 @@ def checkAlign(db, BluId):
 
 
 def mark_slit_bad(db, bSlitIdList):
-
     """
     update the status of a blueprint
 
     inputs:
-    db          database object which is already connected with suitable privs
-    bSlitIdList a list of BluSlits.bSlitId values to be marked bad
+        db
+            database object which is already connected with suitable privs
+        bSlitIdList
+            a list of BluSlits.bSlitId values to be marked bad
 
     outputs:
-    SUCCESS or FAILURE
-    msg_list     text explaining SUCCESS or FAILURE
+        SUCCESS or FAILURE
+        msg_list
+            text explaining SUCCESS or FAILURE
 
     side effects:
     BluSlits.bad becomes 1 for records
