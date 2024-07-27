@@ -1,4 +1,3 @@
-from datetime import datetime
 import string
 
 ONLYONE = 0
@@ -32,20 +31,25 @@ class MaskInsert:
             params = (
                 # design_id (default)
                 row['DesName'],
-                int(self.maps.obid[row['DesAuth']]),  # DesPId becomes ObId matching DesAuth
+                # DesPId becomes ObId matching DesAuth
+                int(self.maps.obid[row['DesAuth']]),
                 row['DesCreat'],
-                row['DesDate'],  # FITS date is ISO8601 and pgsql groks that
+                # FITS date is ISO8601 and pgsql groks that
+                row['DesDate'],
                 int(row['DesNslit']),
                 int(row['DesNobj']),
                 row['ProjName'],
                 row['INSTRUME'],
                 row['MaskType'],
-                float(row['RA_PNT']),  # truly double
-                float(row['DEC_PNT']),  # truly double
+                # truly double
+                float(row['RA_PNT']),
+                # truly double
+                float(row['DEC_PNT']),
                 row['RADEPNT'],
                 float(row['EQUINPNT']),
                 float(row['PA_PNT']),
-                row['DATE_PNT'], # FITS date is ISO8601 and pgsql groks that
+                # FITS date is ISO8601 and pgsql groks that
+                row['DATE_PNT'],
                 float(row['LST_PNT']),
                 # time_stamp (default)
                 self.user_email
@@ -54,6 +58,7 @@ class MaskInsert:
             msg = f"Invalid Parameters: {e}"
             self.log.error(msg)
             self.err_report.append(msg)
+            return
 
         try:
             self.db.cursor.execute(query, params)
@@ -67,13 +72,17 @@ class MaskInsert:
         try:
             params = (
                 # BluId gets default for new primary key
-                self.maps.desid[row['DesId']],  # this is set by mask_design()
+                # DesId is set by mask_design()
+                self.maps.desid[row['DesId']],
                 row['BluName'],
-                int(self.maps.obid[row['BluObsvr']]),  # BluPId becomes ObId matching BluObsvr
+                # BluPId becomes ObId matching BluObsvr
+                int(self.maps.obid[row['BluObsvr']]),
                 row['BluCreat'],
-                row['BluDate'],  # FITS date is ISO8601 and pgsql groks that
+                # FITS date is ISO8601 and pgsql groks that
+                row['BluDate'],
                 float(row['LST_Use']),
-                row['DATE_USE'],  # FITS date is ISO8601 and pgsql groks that
+                # FITS date is ISO8601 and pgsql groks that
+                row['DATE_USE'],
                 int(self.maps.teleid[row['TELESCOP']]),
                 float(row['AtmTempC']),
                 float(row['AtmPres']),
@@ -92,6 +101,7 @@ class MaskInsert:
             msg = f"Invalid Parameters: {e}"
             self.log.error(msg)
             self.err_report.append(msg)
+            return
 
         try:
             self.db.cursor.execute(query, params)
@@ -109,8 +119,10 @@ class MaskInsert:
                 (
                     # dSlitId gets default for new primary key
                     int(self.maps.desid[row['DesId']]),
-                    float(row['slitRA']),             # truly double
-                    float(row['slitDec']),            # truly double
+                    # truly double
+                    float(row['slitRA']),
+                    # truly double
+                    float(row['slitDec']),
                     row['slitTyp'],
                     float(row['slitLen']),
                     float(row['slitLPA']),
@@ -158,7 +170,8 @@ class MaskInsert:
                   float(row['DEC_OBJ']),
                   row['RADESYS'],
                   float(row['EQUINOX']),
-                  float(row['MJD-OBS']),            # truly double
+                  # truly double
+                  float(row['MJD-OBS']),
                   float(row['mag']),
                   row['pBand'],
                   float(row['RadVel']),
@@ -310,7 +323,7 @@ class MaskInsert:
         # select all existing GUIname like that
         # Hope that not all possible final characters have
         # already been used, and use one of those unused.
-        gnSelect = ("SELECT GUIname FROM MaskBlu WHERE GUIname LIKE %s;")
+        gnSelect = "SELECT GUIname FROM MaskBlu WHERE GUIname LIKE %s;"
 
         shortGUIname = newGUIname[:7]
         shortGUIlike = newGUIname[:7] + "%"
@@ -318,7 +331,7 @@ class MaskInsert:
         try:
             self.db.cursor.execute(gnSelect, (shortGUIlike,))
         except Exception as e:
-            msg = ("gnSelect failed: %s: exception class %s: %s" % (db.cursor.query, e.__class__.__name__, e))
+            msg = f"gnSelect failed: {self.db.cursor.query}: exception {e}"
             self.log.error(msg)
         # end try gnSelect
 
@@ -347,7 +360,7 @@ class MaskInsert:
         # duplicate GUIname and any other problems that might arise.
 
         if (newGUIname != GUIname):
-            msg = (f"we change MaskBlu.GUIname to {newGUIname}")
+            msg = f"we change MaskBlu.GUIname to {newGUIname}"
             self.log.warning(msg)
             GUIname = newGUIname
         # end if we changed GUIname

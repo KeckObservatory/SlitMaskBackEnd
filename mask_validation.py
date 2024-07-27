@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil import parser as date_parser
 from dateutil.parser import ParserError
 
@@ -25,7 +25,9 @@ class MaskValidation:
         if tel in ('Keck II', 'Keck I'):
             return True
 
-        msg = f"MaskBlu.TELESCOP {tel} is not recognized"
+        msg = f"The defined Telescope (MaskBlu.TELESCOP) {tel} is " \
+              f"not recognized."
+
         self.log.warning(msg)
         self.err_report.append(msg)
 
@@ -43,7 +45,9 @@ class MaskValidation:
         if inst in ('DEIMOS', 'LRIS'):
             return True
 
-        msg = f"MaskDesign.INSTRUME {inst} is not recognized"
+        msg = f"The defined instrument (MaskDesign.INSTRUME) {inst} is " \
+              f"not recognized."
+
         self.log.warning(msg)
         self.err_report.append(msg)
 
@@ -61,16 +65,25 @@ class MaskValidation:
         DesAuth = self.hdul['MaskDesign'].data['DesAuth'][0]
 
         if not self.map.obid[DesAuth]:
-            msg = f"The design author email address is missing"
+            msg = f"The (MaskDesign.DesAuth) design author email address =" \
+                  f" '{DesAuth}' is invalid.  Format is 'user name " \
+                  f"<email@address.edu>'."
+
             self.log.warning(msg)
             self.err_report.append(msg)
+
             state = False
 
         BluObsvr = self.hdul['MaskBlu'].data['BluObsvr'][0]
+
         if not self.map.obid[BluObsvr]:
-            msg = f"The Blueprint Observer email address is missing"
+            msg = f"The (MaskBlu.BluObsvr) blueprint observer email address =" \
+                  f" '{BluObsvr}' is invalid.  Format is 'user name " \
+                  f"<email@address.edu>'."
+
             self.log.warning(msg)
             self.err_report.append(msg)
+
             state = False
 
         return state
@@ -86,15 +99,14 @@ class MaskValidation:
             mdf_gui_name = self.hdul['MaskBlu'].data['guiname'][0]
         except Exception as err:
             mdf_gui_name = None
-            msg = f"no MaskBlu keyword: {err}"
 
         if not mdf_gui_name:
-            if not msg:
-                msg = f"error finding the mask guiname - MaskBlu.guiname"
+            msg = f"The Mask Blueprint Name (MaskBlu.guiname) is missing: {err}."
 
         if msg:
             self.log.warning(msg)
             self.err_report.append(msg)
+
             return False
 
         return True
@@ -113,18 +125,14 @@ class MaskValidation:
         data_shape = self.hdul['DesiSlits'].data.shape[0]
         design_nslits = self.hdul['MaskDesign'].data['DesNslit'][0]
 
-        # TODO
-        # priority code number alignment = -2 guide stars = -1,  all else are okay
-        # ?Selected Guide Stars:
-        # 11027556        14:15:04.15300  25:09:00.97000 2000.0 18.0 R -1 0 1 0.0 5.0 5.0 1.0
-        # mask design has guide stars but not in slits
-
         # we require that rows in table DesiSlits match count(DesiSlits.dSlitId)
         if design_nslits == data_shape:
             return True
 
-        msg = ("MaskDesign.DesNslit %s != DesiSlitRows %s",
-               (design_nslits, data_shape))
+        msg = f"Design Number of slits (MaskDesign.DesNslit): " \
+              f"{design_nslits} is not equal to the number of slit rows " \
+              f"(DesiSlitRows): {data_shape}."
+
         self.log.warning(msg)
         self.err_report.append(msg)
 
@@ -144,12 +152,14 @@ class MaskValidation:
         mask_use_date = self.hdul['MaskBlu'].data['Date_Use'][0]
         mask_date_use_dt = self._mask_date_str_dt(mask_use_date)
 
-        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        yesterday = datetime.now() - timedelta(days=1)
 
         if mask_date_use_dt > yesterday:
             return True
 
-        msg = f"MaskBlu.Date_Time {mask_use_date} is before yesterday: {yesterday}"
+        # msg = f"MaskBlu.Date_Time {mask_use_date} is before yesterday: {yesterday}"
+        msg = f"Invalid mask blueprint date,  the date (MaskBlu.Date_Time) " \
+              f"{mask_use_date} is before: {yesterday}."
         self.log.warning(msg)
         self.err_report.append(msg)
 
@@ -168,9 +178,12 @@ class MaskValidation:
         b1900 = datetime.strptime(b1900iso, '%Y-%m-%d')
 
         if date_pnt_dt < b1900:
-            msg = f"MaskDesign.DATE_PNT {design_date_pnt} is before B1900 {b1900iso}"
+            msg = f"The Date of Pointing (MaskDesign.DATE_PNT) " \
+                  f"{design_date_pnt} is before B1900 {b1900iso}."
+
             self.log.warning(msg)
             self.err_report.append(msg)
+
             return False
 
         return True
@@ -192,7 +205,10 @@ class MaskValidation:
             if desid not in self.hdul['MaskDesign'].data['DesId']:
                 # foo want to mark row as do not ingest
                 if desid != weirddesid:
-                    msg = f"DesiSlits has DesId {desid} not in MaskDesign.DesId will not be ingested"
+                    msg = f"The slit design (DesiSlits) has a slit ID " \
+                          f"(DesId) {desid} that is not in the Mask Design " \
+                          f"(MaskDesign.DesId)."
+
                     self.log.warning(msg)
                     self.err_report.append(msg)
 
@@ -222,8 +238,10 @@ class MaskValidation:
             if row_blue_id != blue_id:
                 # want to mark row as do not ingest
                 if row_blue_id != weirdbluid:
-                    msg = ("BluSlits has BluId %s != MaskBlu.Bluid %s will "
-                           "not be ingested" % (row_blue_id, blue_id))
+                    msg = f"A slit ID in Blueprint Slits (BluSlits) has an ID" \
+                          f" (BluId) {row_blue_id} that is not equal to the " \
+                          f"Mask Blueprint (MaskBlu.Bluid) {blue_id}. "
+
                     self.log.warning(msg)
                     self.err_report.append(msg)
 
@@ -235,8 +253,10 @@ class MaskValidation:
             if dslitid not in self.hdul['DesiSlits'].data['dSlitId']:
                 # foo want to mark row as do not ingest
                 if dslitid != weirddslitid:
-                    msg = ("BluSlits has dSlitId %s not in DesiSlits.dSlitId "
-                           "will not be ingested" % (dslitid,))
+                    msg = f"The blueprint (BluSlits) has slit ID (dSlitId) " \
+                          f"{dslitid} that is not in the design slits " \
+                          f"(DesiSlits.dSlitId)."
+
                     self.log.warning(msg)
                     self.err_report.append(msg)
 
@@ -276,8 +296,10 @@ class MaskValidation:
             if slit_design_id != design_id:
                 # want to mark row as do not ingest
                 if slit_design_id != weirddesid:
-                    msg = ("SlitObjMap has DesId %s not in MaskDesign.DesId "
-                           "will not be ingested" % (slit_design_id,))
+                    msg = f"The slit object mapping (SlitObjMap) has a slit" \
+                          f"(DesId) {slit_design_id} not in the Mask Design" \
+                          f"(MaskDesign.DesId)."
+
                     self.log.warning(msg)
                     self.err_report.append(msg)
 
@@ -288,20 +310,26 @@ class MaskValidation:
             objectid = row['ObjectId']
             if objectid not in self.hdul['ObjectCat'].data['ObjectId']:
                 # want to mark row as do not ingest
-                msg = ("SlitObjMap has ObjectdId %s not in ObjectCat.ObjectId "
-                       "will not be ingested" % (objectid,))
+                msg = f"The slit object mapping (SlitObjMap) has an object ID" \
+                      f"(ObjectdId) {objectid} that is not in the Object" \
+                      f"Catalog (ObjectCat.ObjectId)."
+
                 self.log.warning(msg)
                 self.err_report.append(msg)
+
                 state = False
 
             # we require that all SlitObjMap.dSlitId be in DesiSlits.dSlitId
             dslitid = row['dSlitId']
             if dslitid not in self.hdul['DesiSlits'].data['dSlitId']:
                 # want to mark row as do not ingest
-                msg = ("SlitObjMap has dSlitId %s not in DesiSlits.dSlitId "
-                       "will not be ingested" % (dslitid,))
+                msg = f"The slit object mapping (SlitObjMap) has a design" \
+                      f"slit (dSlitId) {dslitid} that is not in the design" \
+                      f"slit IDs (DesiSlits.dSlitId)."
+
                 self.log.warning(msg)
                 self.err_report.append(msg)
+
                 state = False
 
             return state
@@ -328,9 +356,13 @@ class MaskValidation:
             if row['CatFilePK'] not in self.hdul['CatFiles'].data['CatFilePK']:
                 # we require that all ObjectCat.CatFilePK be in CatFiles.CatFilePK
                 # No tool which creates MDFs produces records like this.
-                msg = ("ObjectCat has CatFilePK %s not in CatFiles.CatFilePK will not be ingested" % (catfilepk,))
+                msg = f"The object catalog (ObjectCat) has a catalog file " \
+                      f"(CatFilePK) {catfilepk} not in the the catalog files" \
+                      f"(CatFiles.CatFilePK)."
+
                 self.log.warning(msg)
                 self.err_report.append(msg)
+
                 state = False
 
             objectid = row['ObjectId']
@@ -344,9 +376,13 @@ class MaskValidation:
                 pass
             elif row['ObjectId'] not in self.hdul['SlitObjMap'].data['ObjectId']:
                 # we require that all ObjectCat.ObjectId be in SlitObjMap.ObjectId
-                msg = ("ObjectCat has ObjectId %s not in SlitObjMap.ObjectId will not be ingested" % (objectid,))
+                msg = f"The object catalog (ObjectCat) has an object ID " \
+                      f"(ObjectId) {objectid} that is not in slit-object " \
+                      f"mapping (SlitObjMap.ObjectId)."
+
                 self.log.warning(msg)
                 self.err_report.append(msg)
+
                 state = False
 
         return state
@@ -362,7 +398,7 @@ class MaskValidation:
         try:
             date_obj = date_parser.parse(header_date_str)
         except ParserError as err:
-            msg = f"The date: {header_date_str} is invalid, error: {err}"
+            msg = f"The date: {header_date_str} is invalid, error: {err}."
             self.log.warning(msg)
             self.err_report.append(msg)
             return None

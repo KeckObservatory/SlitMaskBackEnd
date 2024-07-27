@@ -8,9 +8,6 @@ warnings.filterwarnings('ignore', message='The following header keyword is inval
 warnings.filterwarnings('ignore', message='Invalid keyword for column', category=UserWarning)
 
 from astropy.io import fits
-from astropy.table import Table
-
-import sys
 
 import logger_utils as log_fun
 import validate_utils as valid_utils
@@ -102,13 +99,15 @@ class IngestFun:
 
         validate = MaskValidation(self.maps, hdul, err_report, self.log)
 
+        # TODO Michael is fixing the SMDT for this
         validate.slit_number()
         validate.has_emails()
         validate.has_guiname()
         validate.instrument()
         validate.telescope()
         validate.date_pnt()
-        validate.date_use()
+        # TODO temporary to test old masks
+        # validate.date_use()
         validate.design_slits()
         validate.blue_slits()
         validate.slit_object_map()
@@ -118,9 +117,11 @@ class IngestFun:
 
         ####################################################################
 
-        if len(err_report) > 0:
-            msg = f"There are {len(err_report)} error(s). The file cannot be ingested."
+        if err_report:
+            msg = f"There are {len(err_report)} error(s). The file cannot " \
+                  f"be ingested."
             err_report.append(msg)
+
             return False, err_report
 
         return True, err_report
@@ -181,7 +182,7 @@ class IngestFun:
             badtables = valid_utils.valTableExt(hdul, extname)
 
         if badtables:
-            msg = f"we cannot ingest MDF, it has malformed tables."
+            msg = f"The MDF file has malformed tables."
             msg += "\n".join([f"* {item}" for item in badtables])
             self.log.error(msg)
             return False, badtables
@@ -221,25 +222,23 @@ class IngestFun:
             err_report = [msg]
             valid = False
 
-        # save file
+        # save file,  pass if there is an issue saving the file
         try:
             hdul.writeto(save_path, overwrite=True)
         except Exception as err:
-            # TODO log this?  is this okay,  when does this happen?
-            #err_report.append(f'Error saving file: {err}')
-            self.log.warning(f"Error saving file: {err}: exception: {e} ")
-            # valid = False
+            self.log.warning(f"Error saving file: {err}")
 
         if not valid:
-            err_report.append(f"did not insert because file had problems")
             return False, err_report
 
         if self.db is None:
-            err_report.append("no mask user, no attempt to insert")
+            err_report.append("The mask user is missing!")
+
             return False, err_report
 
         ####################
-        insert = MaskInsert(self.user_info, hdul, self.db, self.maps, self.log, err_report)
+        insert = MaskInsert(self.user_info, hdul, self.db, self.maps,
+                            self.log, err_report)
 
         # MaskDesign -> maskdesign
         #   @validate lookup map DesAuth from e-mail to ObId as DesPId
@@ -321,7 +320,7 @@ class IngestFun:
 
         for row in hdul['ObjectCat'].data:
             result = insert.target(row, target_query)
-            # TODO added check for None,  needs testing
+
             if not result:
                 continue
 
@@ -359,7 +358,7 @@ class IngestFun:
         ####################
 
         if len(err_report) != 0:
-            err_report.append(f"We have errors before commitOrRollback")
+            err_report.append(f"We have errors before ingesting!")
             return False, err_report
 
         committed, message = commitOrRollback(self.db)
@@ -368,7 +367,13 @@ class IngestFun:
             self.log.info("commitOrRollback worked, self.db should be changed")
             success = True
         else:
-            err_report.append(f"commitOrRollback failed: {message}")
+            msg = f"There was an error ingesting file!  The file did not store" \
+                  f"in the database properly."
+            err_report.append(msg)
+
+            msg += f"(commitOrRollback failed): {message}"
+            self.log.info(msg)
+
             success = False
 
         ####################

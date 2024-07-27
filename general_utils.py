@@ -5,7 +5,6 @@ import configparser
 import logger_utils as log_fun
 import psycopg2
 import psycopg2.extras
-from psycopg2 import DatabaseError
 
 import subprocess
 
@@ -342,11 +341,15 @@ def get_recent_day(request):
 
 def generate_svg_plot(user_info, info_results, slit_results, bluid):
 
+    # get the gnuplot functions
+    gnusvg = Gnuplot5()
+
+    def draw_slit(color):
+        gnusvg.DrawSlit(color, x1, y1, x2, y2, x3, y3, x4, y4, dslitid)
+
     instrume = info_results[0]['instrume']
     bluname = info_results[0]['bluname']
     guiname = info_results[0]['guiname']
-
-    gnusvg = Gnuplot5()
 
     gnusvg.OpenSVG(str(user_info.keck_id))
 
@@ -356,51 +359,34 @@ def generate_svg_plot(user_info, info_results, slit_results, bluid):
 
     lenres = len(slit_results)
 
+    gnusvg.draw_mask_outline(instrume)
+
     if lenres > 0:
 
         # loop over all slitlets
         for row in slit_results:
-            bad = row['bad']
-            slittyp = row['slittyp']
             dslitid = row['dslitid']
-            x1 = row['slitx1']
-            y1 = row['slity1']
-            x2 = row['slitx2']
-            y2 = row['slity2']
-            x3 = row['slitx3']
-            y3 = row['slity3']
-            x4 = row['slitx4']
-            y4 = row['slity4']
+            slittyp = row['slittyp']
+            if row['bad']:
+                slittyp = 'bad'
 
-            # draw each slitlet
-            if bad:
-                # slit violated milling limits
-                gnusvg.DrawSlit('red', x1, y1, x2, y2, x3, y3, x4, y4, dslitid)
-            elif slittyp == 'P':
-                # normal program target slit
-                gnusvg.DrawSlit('blue', x1, y1, x2, y2, x3, y3, x4, y4, dslitid)
-            elif slittyp == 'A':
-                # alignment star hole
-                gnusvg.DrawSlit('cyan', x1, y1, x2, y2, x3, y3, x4, y4, dslitid)
-            elif slittyp == 'C':
-                # circular hole
-                # Grid Of Holes (GOH) metrology mask
-                # World Coordinate System (WCS) metrology mask
-                gnusvg.DrawHole('green', x1, y1, x2, y2, x3, y3, x4, y4, dslitid)
-            elif slittyp == 'L':
-                # one segment of LRIS zigzag line hole
-                # one segment of LRIS circular arc hole
-                gnusvg.DrawSlit('magenta', x1, y1, x2, y2, x3, y3, x4, y4, dslitid)
-            elif slittyp == 'G':
-                # DSIMULATOR "ghost" hole (not seen since initial deployment)
-                # seen in the Variable Length Long Mirror Slit eternal calibration mask
-                gnusvg.DrawSlit('yelloworange', x1, y1, x2, y2, x3, y3, x4, y4, dslitid)
-            else:
-                # this should not happen
-                # once upon a time there was "M" for LRIS pickoff mirror
-                gnusvg.DrawSlit('grey', x1, y1, x2, y2, x3, y3, x4, y4, dslitid)  # end if  # end for row
+            # Flip the X values for DEIMOS
+            x1, x2, x3, x4 = [(-row[f'slitx{i}'] if instrume == "DEIMOS"
+                               else row[f'slitx{i}']) for i in range(1, 5)]
 
-    # end if
+            y1, y2, y3, y4 = [row[f'slity{i}'] for i in range(1, 5)]
+
+            slit_fun_map = {
+                'bad': lambda: draw_slit('red'),
+                'P': lambda: draw_slit('blue'),
+                'A': lambda: draw_slit('cyan'),
+                'C': lambda: gnusvg.DrawHole('green', x1, y1, x3, y3, dslitid),
+                'L': lambda: draw_slit('magenta'),
+                'G': lambda: draw_slit('yelloworange')
+            }
+
+            draw_slits_fun = slit_fun_map.get(slittyp, lambda: draw_slit('grey'))
+            draw_slits_fun()
 
     # get the name of the gnuplot 5.4 input file
     svgfn = gnusvg.CloseSVG()

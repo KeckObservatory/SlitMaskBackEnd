@@ -26,7 +26,7 @@ from wspgconn import WsPgConn
 from ingest_fun import IngestFun
 from general_utils import do_query, is_admin
 from mask_constants import MASK_ADMIN, MASK_USER, MASK_LOGIN, RECENT_NDAYS, \
-    USER_TYPE_STR, MaskBluStatusFORGOTTEN, MaskBluStatusMILLABLE, TOOL_DIAMETER
+     USER_TYPE_STR, MaskBluStatusFORGOTTEN, MaskBluStatusMILLABLE, TOOL_DIAMETER
 
 # set the path of the files
 APP_PATH = path.abspath(path.dirname(__file__))

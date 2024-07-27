@@ -46,7 +46,9 @@ def set_design_pid(db, hdul, maps, obs_info):
 
     # parse design author e-mail address
     DesAuth = hdul['MaskDesign'].data['DesAuth'][0]
+    log.info('Mask design author email (MaskDesign.DesAuth)')
     DesAuthEmail = mbox2email(DesAuth)
+    log.info('Parsed mask design author email (DesAuthEmail)')
 
     # get user
     design_pid = mask_user_id(db, DesAuthEmail, obs_info)
@@ -84,31 +86,33 @@ def mbox2email(email_str):
     """
     email_str  # character string containing a mailbox (RFC 5322 page 45)
 
-    suppose that string contains an RFC 5322 compliant mailbox like
-    Preferred Name <user@domain>
-    if found return "user@domain"
+    Suppose that string contains an RFC 5322 compliant mailbox like
+        Preferred Name <user@domain>
+            if found return "user@domain"
+
+    Also matches user@domain,  and checks that only one email is input
+
     """
     log = log_fun.get_log()
 
-    # match most any sane e-mail address
-    # but not all non-English possibilities
-    # https://www.regular-expressions.info/email.html
-    emailre = ".*<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>.*"
+    email_regex = r'<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>?'
 
-    m = re.match(emailre, email_str)
+    match = re.search(email_regex, email_str)
 
-    if not m:
+    if not match:
         return None
 
-    glist = m.groups()
+    emails_tuple = match.groups()
+    emails_len = len(emails_tuple)
 
-    if len(glist) == 1:
-        return glist[0]
-    elif len(glist) > 1:
-        log.error("more than one e-mail in %s" % (email_str))
+    if emails_len == 1:
+        return emails_tuple[0]
+    elif emails_len > 1:
+        log.error(f"more than one e-mail in {email_str}")
         return None
 
-    log.error("no e-mail in %s" % (email_str))
+    log.error(f"no e-mail in {email_str}")
+    
     return None
 
 

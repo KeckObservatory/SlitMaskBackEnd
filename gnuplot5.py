@@ -1,17 +1,12 @@
-# because without re life itself would be impossible
 import re
-
-# we use the filesystem
 import os
-
 import datetime
-
-# debugging
-import time
+import tempfile
 
 # this file is only partly translated
 # it began as procedural Tcl
 # it is trying to become object python
+
 
 class Gnuplot5():
     """
@@ -23,10 +18,14 @@ class Gnuplot5():
     def __init__(self):
 
         # gnuplot file pointer
-        self.gpfp       = None
+        self.gpfp = None
 
         # gnuplot file name
-        self.gpfn       = None
+        self.gpfn = None
+
+        # initialize vars to None
+        self.froot = None
+        self.fname = None
 
         ########################################################################
 
@@ -37,26 +36,21 @@ class Gnuplot5():
         # the plot program must be able to read here
         # these files can be deleted any time after the plot program executes them
         # for the sake of debugging, delete might be a cron job that waits an hour or more
-        self.TmpPlotCmdDir  = "/tmp"
+        self.TmpPlotCmdDir = tempfile.gettempdir()
 
         # TmpPlotWebDir is for the plot output files
         # the plot program must be able to write here
         # the web server must be able to serve things here embedded in a web page
         # these files need to persist until a web user is done looking at them
         # delete might be a cron job that waits a day or more
-        self.TmpPlotWebDir  = "/tmp"
-
-    # end def __init__()
+        self.TmpPlotWebDir = tempfile.gettempdir()
 
     ########################################################################
 
     def __del__(self):
 
-        if (self.gpfp):
+        if self.gpfp:
             self.CloseSVG()
-        # end if
-
-    # end def __del__()
 
     ########################################################################
 
@@ -66,60 +60,39 @@ class Gnuplot5():
         # for debugging we want this to be recognizable to a human
         # we do not expect as many as one file per second
 
-        pid     = os.getpid()
+        pid = os.getpid()
 
         # file name is long, but human readable for debugging
         # please clear TmpPlotCmdDir occasionally
-        isodt   = datetime.datetime.strftime(datetime.datetime.now(), '%Y%m%dT%H%M%S%f')
+        isodt = datetime.datetime.strftime(datetime.datetime.now(), '%Y%m%dT%H%M%S%f')
 
-        self.froot      = froot
+        self.froot = froot
 
-        self.fname      = "%s%sp%s" % (froot, isodt, pid)
+        self.fname = f"{froot}{isodt}p{pid}"
 
         # assume POSIX, not bothering with os.path.join
-        self.gpfn       = "%s/%s.gnup" % (self.TmpPlotCmdDir, self.fname)
-
-        #print("opening")
+        self.gpfn = f"{self.TmpPlotCmdDir}/{self.fname}.gnup"
 
         # this needs to be in try/except after development
-        self.gpfp       = open(self.gpfn, 'w')
+        self.gpfp = open(self.gpfn, 'w')
 
-        #print("opened fn %s fp %s" % (self.gpfn, self.gpfp))
-
-    # end def OpenSVG()
 
     ########################################################################
 
-
     def CloseSVG(self):
+        if self.gpfp.closed:
+            return self.gpfn
 
         # plot a line way below the viewport
         # this tells gnuplot to render the mask and all those slitlets
         self.gpfp.write("plot -1000 notitle\n")
-
         self.gpfp.flush()
-        #print("close flushed")
-
-        #print("dir")
-        #print(dir(self.gpfp))
-
-        #print("pprint")
-        #import pprint
-        #pprint.pprint(vars(self.gpfp))
-
-        #print("close sleeping")
-        #time.sleep(20)
-        #print("closing")
-
         self.gpfp.close()
 
-        #print("closed")
-
-        self.gpfp       = None
+        # TODO should this be set to None
+        # self.gpfp = None
 
         return self.gpfn
-
-    # end def CloseSVG()
 
     ########################################################################
 
@@ -130,7 +103,7 @@ class Gnuplot5():
 
         # the file name is based on the e-mail address, but
         # gnuplot only accepts alphanumeric and _ in a plot name
-        sroot       = re.sub("[^A-Za-z0-9_]", "_", self.froot)
+        sroot = re.sub("[^A-Za-z0-9_]", "_", self.froot)
 
         # x1,x2,y1,y2: world coordinate limits for mask plots
         # these use the coordinate system on the metal of the masks
@@ -139,33 +112,38 @@ class Gnuplot5():
         # these do not exactly match the aspect ratio of the
         # actual metal because we are not trying to constrain
         # nor calculate the size of the gnuplot margins
-        if instrume == "LRIS":
-             x1     = -10
-             x2     = 365
-             y1     = -10
-             y2     = 275
-             svgx   = 720
-             svgy   = 600
-        else:
-            # we are DEIMOS
-            x1      = -385.0
-            x2      =  410.0
-            y1      =  -10
-            y2      =  240.0
-            svgx    =  980
-            svgy    =  360
-        # end if
+        inst_cfg = {
+            "LRIS": {
+                "x1": -10, "x2": 365, "y1": -10, "y2": 275,
+                "svgx": 720, "svgy": 600
+            },
+            "DEIMOS": {
+                "x1": -385.0, "x2": 410.0, "y1": -10, "y2": 240.0,
+                "svgx": 980, "svgy": 360
+            }
+        }
 
+        # Default to DEIMOS if instrume is not found
+        crds = inst_cfg.get(instrume, inst_cfg["DEIMOS"])
+
+        x1, x2, y1, y2 = crds["x1"], crds["x2"], crds["y1"], crds["y2"]
+        svgx, svgy = crds["svgx"], crds["svgy"]
+
+        # TODO not working,  causes console errors
         # gnuplot 5.4
         # including the javascript wastes some disk space but makes the plots fully standalone
-        self.gpfp.write("set terminal svg size %.3f,%.3f dynamic enhanced font 'arial,10' mousing standalone name '%s' butt dashlength 1.0\n" % (svgx, svgy, sroot))
+        self.gpfp.write(f"set terminal svg size {svgx:.3f},{svgy:.3f} dynamic "
+                        f"enhanced font 'arial,10' mousing standalone name "
+                        f"'{sroot}' butt dashlength 1.0\n")
 
-        self.gpfp.write("set output '%s/%s.svg'\n" % (self.TmpPlotWebDir, self.fname))
-        self.gpfp.write("set title 'Plot of SlitMask blueprint %s %s (%s)' noenhanced\n" % (bluid, bluname, guiname))
-        self.gpfp.write("set xrange [ %.3f : %.3f ]\n" % (x1, x2))
-        self.gpfp.write("set yrange [ %.3f : %.3f ]\n" % (y1, y2))
+        self.gpfp.write(f"set output '{self.TmpPlotWebDir}/{self.fname}.svg'\n")
+        self.gpfp.write(f"set title 'Plot of SlitMask blueprint {bluid} "
+                        f"{bluname} ({guiname})' noenhanced\n")
+        self.gpfp.write(f"set xrange [ {x1:.3f} : {x2:.3f} ]\n")
+        self.gpfp.write(f"set yrange [ {y1:.3f} : {y2:.3f} ]\n")
 
         self.gpfp.write("set xlabel 'mill X [mm]'\n")
+
         self.gpfp.write("set mxtics\n")
         self.gpfp.write("set ylabel 'mill Y [mm]'\n")
         self.gpfp.write("set mytics\n")
@@ -184,51 +162,64 @@ class Gnuplot5():
 
         # when the calling program wants to embed the svg into html
         # the calling program needs to know the default pixel size
-        return svgx,svgy
-
-    # end def Header()
+        return svgx, svgy
 
     ########################################################################
 
     def DrawSlit(self, hue, x1, y1, x2, y2, x3, y3, x4, y4, dslitid):
-        # slitlets are quadrilaterals
+        # Slitlets are quadrilaterals
         # dslitid is for later use with SVG hypertext hover
-        # this whole notion of SVG via gnuplot was just playing around
+        # This whole notion of SVG via gnuplot was just playing around
         # except that when the Sparc/Solaris webserver died the original
         # ploticus code died with it, so only the gnuplot SVG remained.
 
         self.gpfp.write("bgnum = bgnum + 1\n")
 
-        # hypertext dslitid
-        # lt 7 is set to background color in header
-        # pt 7 is a filled circle which will trigger hover hypertext
-        xc      = (x1 + x3)*0.5
-        yc      = (y1 + y3)*0.5
-        self.gpfp.write("set label bgnum at %.3f,%.3f '%s' point lt 7 pt 7 ps 1 hypertext\n" % (xc,yc,dslitid))
+        # offset the label,  otherwise the slit has a gap in the middle
+        horizontal = abs(y2 - y1) < 10
+        vertical = abs(x2 - x1) < 10
 
-        # increment the object number so that the slitlet is drawn after
+        label_offset = 5
+
+        # Apply offset based on slit orientation
+        if horizontal:
+            offset_x, offset_y = 0, label_offset
+        elif vertical:
+            offset_x, offset_y = label_offset, 0
+        else:
+            # If the slope is positive, y is negative
+            slope = (y2 - y1) / (x2 - x1)
+            offset_x = -label_offset if slope > 0 else label_offset
+            offset_y = label_offset
+
+        # Coordinates for the center of the slitlet
+        xc = (x1 + x3) * 0.5 + offset_x
+        yc = (y1 + y3) * 0.5 + offset_y
+
+        # Draw the hypertext label offset from the center of slit
+        self.gpfp.write(f"set label bgnum at {xc:.3f},{yc:.3f} '{dslitid}' "
+                        f"point lt 7 pt 7  ps 1 hypertext front\n")
+
+        # Increment the object number so that the slitlet is drawn after
         # the point that acts as its background for the hypertext
         self.gpfp.write("fgnum = fgnum + 1\n")
 
-        # draw the slitlet
-        self.gpfp.write("set object fgnum polygon from %.3f,%.3f"    % (x1,y1))
-        self.gpfp.write(" to %.3f,%.3f"                               % (x2,y2))
-        self.gpfp.write(" to %.3f,%.3f"                               % (x3,y3))
-        self.gpfp.write(" to %.3f,%.3f"                               % (x4,y4))
-        self.gpfp.write(" to %.3f,%.3f\n"                             % (x1,y1))
+        # Draw the slitlet
+        self.gpfp.write(f"set object fgnum polygon from {x1:.3f},{y1:.3f}")
+        self.gpfp.write(f" to {x2:.3f},{y2:.3f}")
+        self.gpfp.write(f" to {x3:.3f},{y3:.3f}")
+        self.gpfp.write(f" to {x4:.3f},{y4:.3f}")
+        self.gpfp.write(f" to {x1:.3f},{y1:.3f}\n")
 
-        self.gpfp.write("set object fgnum fillcolor '%s' fillstyle solid noborder\n" % (hue))
+        self.gpfp.write(f"set object fgnum fillcolor '{hue}' fillstyle "
+                        f"solid noborder\n")
 
-        # blank line to make the gnuplot code readable
         self.gpfp.write("\n")
 
-        #print("slit %s %.3f %.3f %s" % (hue, x1, y1, dslitid))
-
-    # end def DrawSlit()
 
     ########################################################################
 
-    def DrawHole(self, hue, x1, y1, x2, y2, x3, y3, x4, y4, dslitid):
+    def DrawHole(self, hue, x1, y1, x3, y3, dslitid):
         # holes are just dots on these  plots
         # dslitid is for later use with SVG hypertext hover
         # this whole notion of SVG via gnuplot was just playing around
@@ -240,39 +231,35 @@ class Gnuplot5():
         # hypertext dslitid
         # lt 7 is set to background color in header
         # pt 7 is a filled circle which will trigger hover hypertext
-        xc      = (x1 + x3)*0.5
-        yc      = (y1 + y3)*0.5
-        self.gpfp.write("set label bgnum at %.3f,%.3f '%s' point lt 7 pt 7 ps 1 hypertext\n" % (xc,yc,dslitid))
+        xc = (x1 + x3) * 0.5
+        yc = (y1 + y3) * 0.5
+
+        self.gpfp.write(f"set label bgnum at {xc:.3f},{yc:.3f} '{dslitid}' "
+                        f"point lt 7 pt 7 ps 1 hypertext\n")
 
         # increment the object number so that the hole is drawn after
         # the point that acts as its background for the hypertext
         self.gpfp.write("fgnum = fgnum + 1\n")
 
         # 1 mm is way bigger than the tool and hole diameter, but this is just a schematic
-        self.gpfp.write("set object fgnum circle center %.3f,%.3f size 1\n" % (xc,yc))
+        self.gpfp.write(f"set object fgnum circle center {xc:.3f},{yc:.3f} size 1\n")
 
-        self.gpfp.write("set object fgnum fillcolor '%s' fillstyle solid noborder\n" % (hue))
+        self.gpfp.write(f"set object fgnum fillcolor '{hue}' fillstyle solid noborder\n")
 
         # blank line to make the gnuplot code readable
         self.gpfp.write("\n")
 
-    # end def DrawSlit()
-
     ########################################################################
 
-    def DrawMaskOutline(self, instrume):
-
+    def draw_mask_outline(self, instrume):
         if instrume == "LRIS":
-            gnuDraw_LRIS_Outline(self)
+            self.draw_outline_LRIS()
         else:
-            gnuDraw_DEIMOS_Outline(self)
-        #end if
-
-    # end def DrawMaskOutline()
+            self.draw_outline_DEIMOS()
 
     ########################################################################
 
-    def Draw_LRIS_Outline(self):
+    def draw_outline_LRIS(self):
 
         # this is the raw metal
         # refer to Caltech drawings labelled
@@ -334,11 +321,11 @@ class Gnuplot5():
 
         self.gpfp.write("\n")
 
-    # end def Draw_LRIS_Outline()
+    # end def draw_outline_LRIS()
 
     ########################################################################
 
-    def Draw_DEIMOS_Outline(self):
+    def draw_outline_DEIMOS(self):
 
         # this is the raw metal
         # refer to DEIMOS drawing D1114
@@ -414,7 +401,7 @@ class Gnuplot5():
 
         self.gpfp.write("\n")
 
-    # end def Draw_DEIMOS_Outline()
+    # end def draw_outline_DEIMOS()
 
     ########################################################################
 

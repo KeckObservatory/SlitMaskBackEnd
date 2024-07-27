@@ -1,9 +1,6 @@
-import sys
 import smtplib
-import datetime
 import subprocess
 
-from os import path
 from email.utils import formatdate
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart

@@ -1,4 +1,3 @@
-import re
 import logger_utils as log_fun
 from general_utils import do_query, commitOrRollback
 
@@ -139,7 +138,6 @@ def parseF2n(f2npath):
     try:
         _ = len(incilist)
     except:
-        incilist is not iterable
         msg = f'file {f2npath} does not look like a .f2n log file of acpncc incidents'
         log.error(msg)
         usrmsg = "failed to read millcode log file"
