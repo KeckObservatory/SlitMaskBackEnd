@@ -100,14 +100,14 @@ class IngestFun:
         validate = MaskValidation(self.maps, hdul, err_report, self.log)
 
         # TODO Michael is fixing the SMDT for this
-        validate.slit_number()
+        # validate.slit_number()
         validate.has_emails()
         validate.has_guiname()
         validate.instrument()
         validate.telescope()
         validate.date_pnt()
         # TODO temporary to test old masks
-        # validate.date_use()
+        validate.date_use()
         validate.design_slits()
         validate.blue_slits()
         validate.slit_object_map()

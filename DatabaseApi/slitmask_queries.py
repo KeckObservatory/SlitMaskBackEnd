@@ -151,6 +151,19 @@ admin_queries = {
         ORDER BY m.MaskId
         """,
 
+    "recent_barcode_owner": """
+        SELECT m.MillDate, m.MillId, m.GUIname, m.millseq, m.maskid,
+        d.DesName, d.DesId, d.despid,
+        b.BluId, b.bluname,
+        d.DesNslit, d.INSTRUME,
+        b.Date_Use
+        FROM Mask m, MaskBlu b, MaskDesign d
+        WHERE m.MillDate >= %s
+        AND b.BluId = m.BluId
+        AND d.DesId = b.DesId
+        ORDER BY m.MaskId
+        """,
+
     "timeline": """
         SELECT b.stamp, b.Date_Use, b.bluid, b.GUIname, b.millseq, d.DesId, 
         d.DesName, d.DesNslit, d.INSTRUME, m.MillId, m.MillDate

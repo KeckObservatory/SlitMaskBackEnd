@@ -8,9 +8,9 @@ import psycopg2.extras
 
 import subprocess
 
+from collections import defaultdict
 from datetime import date, timedelta
 from slitmask_queries import get_query
-from wspgconn import WsPgConn
 from flask import request
 from gnuplot5 import *
 
@@ -64,15 +64,18 @@ def get_userinfo(obs_info):
     return userinfo
 
 
-def get_obs_by_maskid(curse, observer_id, obs_info_url, obid=None):
+def get_obs_by_maskid(curse, observer_id, obs_info, obid=None):
     """
     get the observer information from mask OBID,  this can be either KeckID or
     the legacy OBID.  If OBID,  need keckID to get the keck observer information
     from the Keck observer table.
 
+    The maskid here refers to the MaskDesign.despid (this is the id of the human
+    associated with the design)
+
     :param curse: <obj> the database cursor object.
     :param observer_id: <int> the observer ID,  either legacy OBID or KeckID
-    :param obs_info_url: <dict> the schedule API url to query the keck (mysql) observer table.
+    :param obs_info: <dict> the schedule API url to query the keck (mysql) observer table.
     :param obid: <int> legacy psql OBID,   if known (used on recurse).
 
     :return:
@@ -86,7 +89,7 @@ def get_obs_by_maskid(curse, observer_id, obs_info_url, obid=None):
     # mask ids > 1000 are keck IDs,  otherwise it is the obid in the mask table
     if int(observer_id) > 1000:
         url_params = f"obsid={observer_id}"
-        keck_observers = get_keck_obs_info(obs_info_url, url_params)
+        keck_observers = get_keck_obs_info(obs_info, url_params)
         if not keck_observers:
             return None
 
@@ -99,7 +102,8 @@ def get_obs_by_maskid(curse, observer_id, obs_info_url, obid=None):
 
         return [observer_info]
 
-    # if id is a legacy mask ID (obid) < 1000
+    # if id is a legacy mask ID (obid) < 1000,  the keck id should also
+    # be in the table.  Get keck id,  and run this routine again.
     if not do_query('keckid_from_obid', curse, (observer_id,)):
         return None
 
@@ -108,12 +112,13 @@ def get_obs_by_maskid(curse, observer_id, obs_info_url, obid=None):
     if not observer_keck_id or 'keckid' not in observer_keck_id[0]:
         return None
 
-    # recurse with the keckid > 1000 and setting the obid paramter with original id
+    # For observers without a legacy id recurse with the keckid > 1000 and
+    # setting the obid paramter with original id
     return get_obs_by_maskid(curse, observer_keck_id[0]['keckid'],
-                             obs_info_url, obid=observer_id)
+                             obs_info, obid=observer_id)
 
 
-def get_observer_dict(curse, obs_info_url):
+def get_observer_dict(curse, obs_info):
     """
     Get the MySQL observer table and merge this with the obid in the slitmask
     PostGreSQL observer table.  The slitmask observer table is no longer
@@ -138,7 +143,7 @@ def get_observer_dict(curse, obs_info_url):
        }
     ]
     """
-    keck_obs_mysql_table = get_keck_obs_info(obs_info_url)
+    keck_obs_mysql_table = get_keck_obs_info(obs_info)
     
     observer_table = []
 
@@ -167,7 +172,7 @@ def get_observer_dict(curse, obs_info_url):
     return observer_table
 
 
-def get_obid_column(curse, obs_info_url):
+def get_obid_column(curse, obs_info):
     """
     Get a list the represents the OBID column from the combine mysql observer
     table and the psql observers table.
@@ -178,7 +183,7 @@ def get_obid_column(curse, obs_info_url):
     :return: list of slitmask observer ids
     :rtype: list
     """
-    observer_table = get_observer_dict(curse, obs_info_url)
+    observer_table = get_observer_dict(curse, obs_info)
     if not observer_table:
         return None
 
@@ -402,13 +407,13 @@ def generate_svg_plot(user_info, info_results, slit_results, bluid):
     return plot_file_name, svgx, svgy
 
 
-def get_keck_obs_info(obs_info_url, url_params=None):
+def get_keck_obs_info(obs_info, url_params=None):
     """
     Performs a an API query
     """
     log = log_fun.get_log()
 
-    url = f"{obs_info_url['info_url']}"
+    url = f"{obs_info['info_url']}"
     if url_params:
         url += f"?{url_params}"
 
@@ -516,3 +521,45 @@ def order_search_results(results):
 
     return new_results
 
+
+def group_by_email(data):
+    """
+    Used to group the recently scanned masks by the observer email to be
+    used with an email to send out notifications of newly milled masks to the
+    PIs.
+    > Mask for DEIMOS
+    > GUI name           M31_1
+    > Mill date          Jul 12 2024 12:50PM
+    > Mask barcode       12789
+    > Blueprint name     1001
+    > Blueprint owner    David Jones <dojones@hawaii.edu>
+    > Blueprint date_use Jul 28 2024
+    > Blueprint Id       16801
+    > Design name        1001
+    > Design owner       David Jones <dojones@hawaii.edu>
+    > Design Id          16862
+    > Design #slits      63
+    > Design create date Jun  4 2024  9:30AM
+
+    """
+
+    grouped_data = defaultdict(list)
+
+    for entry in data:
+        if entry['obs']:
+            email = entry['obs'][0]['Email']
+        else:
+            continue
+
+        entry_data = {
+            "Instrument": entry["instrume"], "GUI Name": entry["guiname"],
+            "Mill Date": entry["milldate"], "Mask Barcode": entry["maskid"],
+            "Blueprint Name": entry["bluname"], "Blueprint Id": entry["bluid"],
+            "Design Name": entry["desname"], "Design Owner": entry['obs'][0]['Email'],
+            "Design Id": entry["desid"], "Design #Slits": entry["desnslit"],
+            "Use Date": entry["date_use"]
+        }
+
+        grouped_data[email].append(entry_data)
+
+    return dict(grouped_data)

@@ -66,8 +66,8 @@ class MaskValidation:
 
         if not self.map.obid[DesAuth]:
             msg = f"The (MaskDesign.DesAuth) design author email address =" \
-                  f" '{DesAuth}' is invalid.  Format is 'user name " \
-                  f"<email@address.edu>'."
+                  f" '{DesAuth}' is invalid or not a current Keck Account" \
+                  f"Email.  Format is 'user name <email@address.edu>'."
 
             self.log.warning(msg)
             self.err_report.append(msg)
@@ -78,8 +78,8 @@ class MaskValidation:
 
         if not self.map.obid[BluObsvr]:
             msg = f"The (MaskBlu.BluObsvr) blueprint observer email address =" \
-                  f" '{BluObsvr}' is invalid.  Format is 'user name " \
-                  f"<email@address.edu>'."
+                  f" '{BluObsvr}'is invalid or not a current Keck Account" \
+                  f"Email.  Format is 'user name <email@address.edu>'."
 
             self.log.warning(msg)
             self.err_report.append(msg)
@@ -158,8 +158,8 @@ class MaskValidation:
             return True
 
         # msg = f"MaskBlu.Date_Time {mask_use_date} is before yesterday: {yesterday}"
-        msg = f"Invalid mask blueprint date,  the date (MaskBlu.Date_Time) " \
-              f"{mask_use_date} is before: {yesterday}."
+        msg = f"Invalid mask blueprint date,  the date (MaskBlu.Date_Use) " \
+              f"{mask_use_date} is before: {yesterday.strftime('%Y-%m-%d')}."
         self.log.warning(msg)
         self.err_report.append(msg)
 

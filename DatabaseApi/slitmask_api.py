@@ -1,16 +1,12 @@
 import json
-import math
 import zipfile
-import logging
 import argparse
 import subprocess
 from os import path
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 
-from io import StringIO, BytesIO
-from psycopg2.extras import Json
-from flask_cors import CORS
-from flask import Flask, request, jsonify, make_response, redirect, send_file, Response
+from io import BytesIO
+from flask import Flask, request, make_response, redirect, send_file
 
 import re
 from astropy import units as u
@@ -25,7 +21,7 @@ import admin_search_utils as search_utils
 from wspgconn import WsPgConn
 from ingest_fun import IngestFun
 from general_utils import do_query, is_admin
-from mask_constants import MASK_ADMIN, MASK_USER, MASK_LOGIN, RECENT_NDAYS, \
+from mask_constants import MASK_ADMIN, MASK_USER, RECENT_NDAYS, \
      USER_TYPE_STR, MaskBluStatusFORGOTTEN, MaskBluStatusMILLABLE, TOOL_DIAMETER
 
 # set the path of the files
@@ -44,6 +40,16 @@ def log_response_code(response):
     """
     log.info(f'Response code: {response.status_code}')
     return response
+
+
+# def init_api_with_login(f):
+#     @wraps(f)
+#     def decorated_function(*args, **kwargs):
+#         db_obj, user_info = init_api()
+#         if not user_info:
+#             return redirect(LOGIN_URL)
+#         return f(db_obj, user_info, *args, **kwargs)
+#     return decorated_function
 
 
 def serialize_datetime(obj):
@@ -233,14 +239,45 @@ def upload_mdf():
     return create_response(data=return_data)
 
 
-
 ################################################################################
 #    Mask Information / retrieval functions
 ################################################################################
 
-
+# TODO do not expose this route
 @app.route("/slitmask/mill-queue")
 def get_mill_queue():
+    """
+    find all masks which should be milled but have not been milled
+    corresponds to Tcl maskQ.cgi.sin.  Allow any user access.
+
+    api2_3.py - getMaskMillingQueue( db )
+
+    :return: <json> list of mask objects which want to be milled
+    """
+    ordered_results = masks_need_mill()
+    return create_response(data=ordered_results)
+
+
+@app.route("/slitmask/mill-overdue")
+def get_overdue():
+    """
+    Find any masks in the milling queue that are marked to used soon.  Soon
+    is set as 7 days in the future.
+
+    :return: <json> list of mask objects which want to be milled
+    """
+    ordered_results = masks_need_mill()
+    date_use_overdue = datetime.now() + timedelta(days=7)
+
+    overdue = []
+    for result in ordered_results:
+        if result['Use-Date'] <= date_use_overdue:
+            overdue.append(result)
+
+    return create_response(data=overdue)
+
+
+def masks_need_mill():
     """
     find all masks which should be milled but have not been milled
     corresponds to Tcl maskQ.cgi.sin.  Allow any user access.
@@ -251,7 +288,7 @@ def get_mill_queue():
     """
     db_obj, user_info = init_api()
     if not user_info:
-        return redirect(LOGIN_URL)
+        db_obj, user_info = init_api(keck_id=MASK_ADMIN)
 
     curse = db_obj.get_dict_curse()
     if not do_query('mill', curse, None):
@@ -260,8 +297,9 @@ def get_mill_queue():
     results = gen_utils.get_dict_result(curse)
 
     ordered_results = gen_utils.order_mill_queue(results)
+    return ordered_results
 
-    return create_response(data=ordered_results)
+    # return create_response(data=ordered_results)
 
 
 @app.route("/slitmask/calibration-masks")
@@ -841,6 +879,7 @@ def admin_search():
     return create_response(success=1, data=ordered_results)
 
 
+# TODO do not expose this route
 @app.route("/slitmask/recently-scanned-barcodes")
 def get_recently_scanned_barcodes():
     """
@@ -859,9 +898,8 @@ def get_recently_scanned_barcodes():
     # initialize db,  get user information,  redirect if not logged in.
     db_obj, user_info = init_api()
     if not user_info:
-        return redirect(LOGIN_URL)
-
-    if not is_admin(user_info, log):
+        db_obj, user_info = init_api(keck_id=MASK_ADMIN)
+    elif not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
     recent_date = gen_utils.get_recent_day(request)
@@ -880,6 +918,47 @@ def get_recently_scanned_barcodes():
     results = gen_utils.get_dict_result(curse)
 
     return create_response(data=results)
+
+
+# TODO do not expose this route
+@app.route("/slitmask/recently-scanned-emails")
+def get_users_recently_milled():
+    """
+    get recently scanned barcodes for sending email notifications.
+
+    The results are scanned <= 1 day ago.
+
+    :return: <JSON object> where data = array of recently scanned barcode info.
+    """
+    # initialize db,  get user information,  redirect if not logged in.
+    db_obj, user_info = init_api()
+    if not user_info:
+        db_obj, user_info = init_api(keck_id=MASK_ADMIN)
+    elif not is_admin(user_info, log):
+        return create_response(success=0, err='Unauthorized', stat=401)
+
+    # TODO this should be only 1 day
+    recent_date = gen_utils.get_recent_day(request)
+    query_name = 'recent_barcode_owner'
+
+    curse = db_obj.get_dict_curse()
+
+    if not do_query(query_name, curse, (recent_date, )):
+        return create_response(success=0, err='Database Error!', stat=503)
+
+    results = gen_utils.get_dict_result(curse)
+    if not results:
+        return create_response(data=results)
+
+    for result in results:
+        try:
+            observer_id = result['despid']
+        except Exception as err:
+            log.warning(f'Design PID not found in results, error: {err}')
+            continue
+        result['obs'] = gen_utils.get_obs_by_maskid(curse, observer_id, OBS_INFO)
+
+    return create_response(data=gen_utils.group_by_email(results))
 
 
 @app.route("/slitmask/timeline-report")
@@ -915,6 +994,31 @@ def get_timeline_report():
 
 @app.route("/slitmask/all-valid-masks")
 def get_all_valid_masks():
+    db_obj, user_info = init_api()
+    if not user_info:
+        return redirect(LOGIN_URL)
+
+    # initialize db,  get user information,  redirect if not logged in.
+    if not is_admin(user_info, log):
+        return create_response(success=0, err='Unauthorized', stat=401)
+
+    return get_all_valid_masks_func(db_obj)
+
+
+# TODO this should not be exposed
+@app.route("/slitmask/all-valid-masks-script")
+def get_all_valid_masks_script():
+    """
+    Used by the mask pruner script to get all the masks.
+
+    :return: <json> all valid masks in JSON format
+    """
+    db_obj, user_info = init_api(keck_id=MASK_ADMIN)
+
+    return get_all_valid_masks_func(db_obj)
+
+
+def get_all_valid_masks_func(db_obj):
     """
     list all masks which should be in the physical inventory along with some
     data from MaskBlueprint, MaskDesign, and owner corresponds to Tcl
@@ -924,14 +1028,6 @@ def get_all_valid_masks():
 
     :return: info about masks which should be stored at summit
     """
-    # initialize db,  get user information,  redirect if not logged in.
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
-    if not is_admin(user_info, log):
-        return create_response(success=0, err='Unauthorized', stat=401)
-
     curse = db_obj.get_dict_curse()
     obid_col = gen_utils.get_obid_column(curse, OBS_INFO)
 
@@ -1228,9 +1324,6 @@ def barcode_to_starlist():
 
     curse = db_obj.get_dict_curse()
 
-    # TODO TMP
-    # barcode_list = [9645, 12769, 12799, 12772, 10840, 12778, 10180]
-
     starlist_info = []
     for barcode in barcode_list:
         if not do_query('barcode_to_pointing', curse, (barcode,)):
@@ -1337,13 +1430,14 @@ def guiname_to_starlist():
     # return create_response(data=starlist_rows)
 
 
+# TODO do not expose this route
 @app.route('/slitmask/sias', methods=["GET"])
 def sias_slitmask_info():
     """
 
     :return: <JSON>
     """
-    # bypass logging in as observer useing MASKADMIN
+    # bypass logging in as observer using MASKADMIN
     db_obj, user_info = init_api(keck_id=MASK_ADMIN)
 
     q_type = request.args.get('type')
@@ -1385,7 +1479,6 @@ def sias_slitmask_info():
     output['results'] = data
 
     return create_response(data=output)
-
 
 
 if __name__ == '__main__':
