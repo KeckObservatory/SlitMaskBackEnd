@@ -1,5 +1,13 @@
-# SlitMaskDatabaseApi
+# SlitMaskBackend
 
+DatabaseAPI
+  Required files to run:
+    * slitmask_cfg.live.ini
+    * wspgcfg_live.py
+
+Scripts:
+  Emails,  required updates: slitmask_emails.ini 
+  Backups,  required files:  backup_metabase.live.conf
 
 
 Database Configuration:
