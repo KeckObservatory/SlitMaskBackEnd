@@ -236,7 +236,7 @@ def parseF2n(f2npath):
             usrmsg = "error reading millcode log file"
             bad_slit_info['msg_list'].append(usrmsg)
             try:
-                msg = 'incident %s len(incidict) = %s' % (incinum,len(incidict))
+                msg = 'incident %s len(incidict) = %s' % (incinum, len(incidict))
                 log.error(msg)
             except:
                 msg = 'incidict %s is not iterable' % (incinum,)

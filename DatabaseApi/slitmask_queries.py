@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from mask_constants import MaskBluStatusMILLED, MaskBluStatusFORGOTTEN, PERPETUAL_DATE
 
 ownership_queries = {

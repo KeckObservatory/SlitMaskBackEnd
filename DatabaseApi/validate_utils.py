@@ -1,6 +1,5 @@
 import re
 import numpy
-from datetime import datetime
 
 from mdf_content import mdfcontent
 from apiutils import mask_user_id

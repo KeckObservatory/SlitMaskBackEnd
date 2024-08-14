@@ -6,15 +6,13 @@ import email_utils as utils
 
 APP_PATH = path.abspath(path.dirname(__file__))
 
-# TODO this needs to have API set to 1 day
-
 if __name__ == '__main__':
 
     cfg, log = utils.start_up(APP_PATH)
     log.info('-- PI Notification Email script for newly milled masks --')
 
     today = datetime.utcnow()
-    mail_subject = f"Recently Milled Masks {today.strftime('%Y-%m-%d')}"
+    mail_subject = f"Keck Slitmasks have been milled {today.strftime('%Y-%m-%d')}"
 
     mail_server = utils.get_cfg(cfg, 'email', 'server')
     mail_from = utils.get_cfg(cfg, 'email', 'from')
@@ -46,7 +44,7 @@ if __name__ == '__main__':
             max-width: 600px;
         }
         th, td {
-            border: 1px solid black;
+            border: 1px solid white;
             padding: 8px;
             text-align: left;
         }

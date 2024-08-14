@@ -2,11 +2,6 @@
 
 # tools for access to DEIMOS multi-HDU FITS slitmask description file (MDF)
 
-# Suppress astropy header keyword warnings
-import warnings
-warnings.filterwarnings('ignore', message='The following header keyword is invalid', category=UserWarning)
-warnings.filterwarnings('ignore', message='Invalid keyword for column', category=UserWarning)
-
 from astropy.io import fits
 
 import logger_utils as log_fun
@@ -17,6 +12,12 @@ from general_utils import commitOrRollback
 from mdf_content import mdfcontent
 from slitmask_queries import get_query
 from mask_insert import MaskInsert
+
+# Suppress astropy header keyword warnings
+import warnings
+warnings.filterwarnings('ignore', message='The following header keyword is invalid', category=UserWarning)
+warnings.filterwarnings('ignore', message='Invalid keyword for column', category=UserWarning)
+
 ########################################################################
 
 # to read a MDF we must

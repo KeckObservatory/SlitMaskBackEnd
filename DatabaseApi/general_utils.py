@@ -445,7 +445,7 @@ def order_mask_design(results):
         ('ra_pnt', 'RA'), ('dec_pnt', 'DEC'), ('equinpnt', 'Equinox'),
         ('lst_pnt', 'LST-Observation'), ('pa_pnt', 'Postion-Angle'), ('radepnt', 'Coord-Representation'),
         ('date_pnt', 'Date-Observation'), ('desdate', 'Design-Date'), ('date_pnt', 'Date-Observation'),
-        ('desnslit', 'Slit-Design-Number'), ('desnobj', 'Design-Object-Number'), ('descreat', 'Design-Creation'),
+        ('desnslit', 'Design-Number-Slits'), ('desnobj', 'Design-Object-Number'), ('descreat', 'Design-Creation'),
         ('desid', 'Design-ID'), ('masktype', 'Mask-Type'), ('despid', 'User-Id-Design'),
     ]
 
@@ -563,3 +563,5 @@ def group_by_email(data):
         grouped_data[email].append(entry_data)
 
     return dict(grouped_data)
+
+

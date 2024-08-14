@@ -62,8 +62,7 @@ class WsPgConn(PgConn):
             return user_type
         elif count > 1:
             # we require that email be unique in database table observers
-            self.log.error(f"keck_id {keck_id} returned more than one record: "
-                           f"{self.cursor.query}: {e.__class__.__name__}, {e}")
+            self.log.error(f"keck_id {keck_id} returned more than one record")
             return None
 
         result = self.cursor.fetchone()

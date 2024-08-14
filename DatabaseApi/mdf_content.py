@@ -6,8 +6,8 @@ from astropy.io import fits
 # into the DEIMOS mask milling workflow we wrote
 # Tcl program lsc2df which writes FITS binary tables
 FITStabTypes = [fits.TableHDU, fits.BinTableHDU]
-REQUIRED        = 1
-OPTIONAL        = 0
+REQUIRED = 1
+OPTIONAL = 0
 
 class colAttr:
     """

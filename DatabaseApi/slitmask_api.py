@@ -1,9 +1,8 @@
 import json
 import zipfile
 import argparse
-import subprocess
 from os import path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from io import BytesIO
 from flask import Flask, request, make_response, redirect, send_file
@@ -40,16 +39,6 @@ def log_response_code(response):
     """
     log.info(f'Response code: {response.status_code}')
     return response
-
-
-# def init_api_with_login(f):
-#     @wraps(f)
-#     def decorated_function(*args, **kwargs):
-#         db_obj, user_info = init_api()
-#         if not user_info:
-#             return redirect(LOGIN_URL)
-#         return f(db_obj, user_info, *args, **kwargs)
-#     return decorated_function
 
 
 def serialize_datetime(obj):
@@ -206,7 +195,7 @@ def upload_mdf():
 
         # run dbmaskout inorder to get the mask_fits file for the gcode
         try:
-            maskout_files = dbmaskout_runner(blue_id)
+            maskout_files = utils.dbmaskout_runner(blue_id, KROOT, DBMASKOUT_DIR)
         except Exception as err:
             log.error(f"error running dbMaskOut, {blue_id}, {err}")
             maskout_files = None
@@ -218,7 +207,8 @@ def upload_mdf():
         mask_fits_filename = maskout_files[0]
 
         # create the mill / gcode files [gcodepath, f2nlogpath]
-        gcode_files = gcode_runner(blue_id, mask_fits_filename)
+        gcode_files = utils.gcode_runner(blue_id, mask_fits_filename, KROOT,
+                                         NCMILL_DIR, TOOL_DIAMETER)
         if not gcode_files or len(gcode_files) < 2:
             return create_response(
                 success=0, stat=401,
@@ -298,8 +288,6 @@ def masks_need_mill():
 
     ordered_results = gen_utils.order_mill_queue(results)
     return ordered_results
-
-    # return create_response(data=ordered_results)
 
 
 @app.route("/slitmask/calibration-masks")
@@ -599,6 +587,7 @@ def get_mask_description_file():
     return send_file(zip_buffer, download_name=f'mdf-files-{blue_id}.zip', as_attachment=True)
 
 
+@app.route("/slitmask/mill-file")
 @app.route("/slitmask/mill-files")
 def mill_files():
     """
@@ -643,14 +632,14 @@ def mill_files():
         return redirect(LOGIN_URL)
 
     blue_id = request.args.get('blue-id')
-
+    print(f'here {blue_id}')
     if not blue_id:
         return create_response(success=0, stat=401,
                                err=f'The mask blueprint ID, blue-id is required!')
 
     # run dbmaskout inorder to get the mask_fits file
     try:
-        maskout_files = dbmaskout_runner(blue_id)
+        maskout_files = utils.dbmaskout_runner(blue_id, KROOT, DBMASKOUT_DIR)
     except Exception as err:
         log.error(f"error running dbMaskOut, {blue_id}, {err}")
         maskout_files = None
@@ -662,7 +651,8 @@ def mill_files():
     mask_fits_filename = maskout_files[0]
 
     # create the mill / gcode files
-    gcode_files = gcode_runner(blue_id, mask_fits_filename)
+    gcode_files = utils.gcode_runner(blue_id, mask_fits_filename, KROOT,
+                                     NCMILL_DIR, TOOL_DIAMETER)
     if not gcode_files:
         create_response(success=0, stat=401,
                         err=f'There was a problem creating the gcode files!')
@@ -677,67 +667,6 @@ def mill_files():
 
     return send_file(zip_buffer, download_name=f'gcode-files-{blue_id}.zip',
                      as_attachment=True)
-
-
-def dbmaskout_runner(blue_id):
-    exec_dir = f"{KROOT}/{DBMASKOUT_DIR}"
-    out_dir = f"{KROOT}/var/dbMaskOut/"
-
-    mask_fits_filename, mask_ali_filename = utils.generate_mask_descript(
-        blue_id, exec_dir, out_dir, KROOT
-    )
-
-    if not mask_fits_filename:
-        return None
-
-    maskout_files = [mask_fits_filename, mask_ali_filename]
-
-    return maskout_files
-
-
-def gcode_runner(blue_id, mask_fits_filename):
-    # convert mask FITS file into G-code
-    ncmill_path = f"{KROOT}/{NCMILL_DIR}"
-    fits2ncc = f"{ncmill_path}/fits2ncc"
-
-    # redirect stdout and stderr into these files
-    STDOUT = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.out", 'w+')
-    STDERR = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.err", 'w')
-
-    # call external function fits2ncc
-    status = subprocess.call(
-        [fits2ncc, f"{TOOL_DIAMETER}", f"{mask_fits_filename}"],
-        stdout=STDOUT, stderr=STDERR
-    )
-
-    STDERR.close()
-
-    if status != 0:
-        return None
-
-    f2nlogpath = ''
-    gcodepath = ''
-
-    # rewind the stdout from fits2ncc script
-    STDOUT.seek(0)
-
-    for line in STDOUT:
-        name, var = line.partition("=")[::2]
-        if not var:
-            continue
-        elif name == 'gcodepath':
-            gcodepath = var.strip()
-        elif name == 'f2nlogpath':
-            f2nlogpath = var.strip()
-
-    if (f2nlogpath == '') or (gcodepath == ''):
-        return None
-
-    STDOUT.close()
-
-    gcode_files = [gcodepath, f2nlogpath]
-
-    return gcode_files
 
 
 # TODO needs to be updated to email PI as well -- when ready!
@@ -810,10 +739,11 @@ def remill_mask():
               f'was not able to mark mask to be re-milled'
         return create_response(success=0, stat=503, err=err)
 
+    # get the PI emails associated with the mask
+    pi_emails = utils.getx_design_owner_emails(db_obj, blue_id, design_id, OBS_INFO)
 
-    pi_emails = utils.get_design_owner_emails(db_obj, blue_id, design_id, OBS_INFO)
-
-    email_list = [EMAIL_INFO['admin'], user_info.email] + pi_emails
+    # add the two lists removing any duplicates
+    email_list = list(set([EMAIL_INFO['admin'], user_info.email] + pi_emails))
 
     subject = f'Mask set to be remilled, blue-id={blue_id}'
 
@@ -937,8 +867,9 @@ def get_users_recently_milled():
     elif not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
-    # TODO this should be only 1 day
-    recent_date = gen_utils.get_recent_day(request)
+    # TODO this should be only 1 day -- ok for now
+    # recent_date = gen_utils.get_recent_day(request)
+    recent_date = date.today() - timedelta(days=1)
     query_name = 'recent_barcode_owner'
 
     curse = db_obj.get_dict_curse()
@@ -1360,6 +1291,7 @@ def barcode_to_starlist():
 
     return create_response(data=starlist_rows)
 
+
 # TODO do not expose this route
 @app.route("/slitmask/guiname-starlist", methods=['GET'])
 def guiname_to_starlist():
@@ -1422,12 +1354,10 @@ def guiname_to_starlist():
                 f"rotmode=pa rotdest={obj['pa_pnt']}\n")
         starlist_rows.append(line)
 
-    # return in starlist format instead of JSON
     starlist_fmt = "\n".join(starlist_rows)
 
     # return as a starlist instead of the common JSON format
     return starlist_fmt
-    # return create_response(data=starlist_rows)
 
 
 # TODO do not expose this route

@@ -105,14 +105,14 @@ def query_db_api(url):
 def json_to_html_table(json_data):
     html = '<table border="1" cellpadding="5" cellspacing="0">\n'
 
-    # Create table header
+    # table header
     headers = json_data['data'][0].keys()
     html += '  <tr>\n'
     for header in headers:
         html += f'    <th>{header}</th>\n'
     html += '  </tr>\n'
 
-    # Create table rows
+    # table rows
     for entry in json_data['data']:
         html += '  <tr>\n'
         for header in headers:
@@ -123,19 +123,10 @@ def json_to_html_table(json_data):
     return html
 
 
-def get_log():
-    log_name = SLITMASK_LOGNAME
-
-    # get the log if already exists
-    log = logging.getLogger(log_name)
-    if not log.handlers:
-        print('an error occurred while getting the log')
-        return None
-
-    return log
-
-
 def configure_logger(log_dir):
+    """
+    log_dir <str>: the path to the log
+    """
     log_name = SLITMASK_LOGNAME
 
     # get the log if already exists
@@ -156,7 +147,5 @@ def configure_logger(log_dir):
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
     log.addHandler(stream_handler)
-
-    log.info("Starting SlitMask Database Flask Server.")
 
     return log

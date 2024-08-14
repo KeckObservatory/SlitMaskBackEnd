@@ -503,3 +503,77 @@ def get_design_owner_emails(db_obj, blue_id, design_id, obs_info_url):
 
     return email_list
 
+
+def dbmaskout_runner(blue_id, KROOT, DBMASKOUT_DIR):
+    """
+    Routine to run the TCL DBMASK out software to create the FITs chunks.
+
+    The FITs chunks are use to append (currently only to DEIMOS) to the
+    science files to describe the location of the slits.
+    """
+    exec_dir = f"{KROOT}/{DBMASKOUT_DIR}"
+    out_dir = f"{KROOT}/var/dbMaskOut/"
+
+    mask_fits_filename, mask_ali_filename = generate_mask_descript(
+        blue_id, exec_dir, out_dir, KROOT
+    )
+
+    if not mask_fits_filename:
+        return None
+
+    maskout_files = [mask_fits_filename, mask_ali_filename]
+
+    return maskout_files
+
+
+def gcode_runner(blue_id, mask_fits_filename, KROOT, NCMILL_DIR, TOOL_DIAMETER):
+    """
+    The routine is used to run the TCL software the creates the MILL files.
+    The mill files are used to cut slitmasks with the CNC mill at the summit.
+
+    The output from this routine are ascii files in linux format.  To run with
+    the mill you will have to use the linux function:  /usr/bin/unix2dos to
+    convert these files to DOS for the mill to read.
+    """
+    # convert mask FITS file into G-code
+    ncmill_path = f"{KROOT}/{NCMILL_DIR}"
+    fits2ncc = f"{ncmill_path}/fits2ncc"
+
+    # redirect stdout and stderr into these files
+    STDOUT = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.out", 'w+')
+    STDERR = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.err", 'w')
+
+    # call external function fits2ncc
+    status = subprocess.call(
+        [fits2ncc, f"{TOOL_DIAMETER}", f"{mask_fits_filename}"],
+        stdout=STDOUT, stderr=STDERR
+    )
+
+    STDERR.close()
+
+    if status != 0:
+        return None
+
+    f2nlogpath = ''
+    gcodepath = ''
+
+    # rewind the stdout from fits2ncc script
+    STDOUT.seek(0)
+
+    for line in STDOUT:
+        name, var = line.partition("=")[::2]
+        if not var:
+            continue
+        elif name == 'gcodepath':
+            gcodepath = var.strip()
+        elif name == 'f2nlogpath':
+            f2nlogpath = var.strip()
+
+    if (f2nlogpath == '') or (gcodepath == ''):
+        return None
+
+    STDOUT.close()
+
+    gcode_files = [gcodepath, f2nlogpath]
+
+    return gcode_files
