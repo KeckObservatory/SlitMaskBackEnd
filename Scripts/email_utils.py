@@ -1,16 +1,17 @@
 import configparser
 import requests
 import logging
+import urllib3
+import smtplib
 import sys
 
-import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate
 
 SLITMASK_LOGNAME = 'slitmask_emails'
 
-import urllib3
+# mute insecure warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
