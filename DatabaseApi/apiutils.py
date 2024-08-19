@@ -93,8 +93,8 @@ def maskStatus(db, blue_id, newstatus):
 
     log.info(f"updated blue_id {blue_id} new status {newstatus}")
 
-    # TODO from Steve -- need to fix database create because null millseq is normal for new masks
-    newmillseq = '  '
+    # change the millseq to null,  like a new masks
+    newmillseq = None
 
     maskMillseqUpdate = "update MaskBlu set millseq = %s where bluid = %s"
 

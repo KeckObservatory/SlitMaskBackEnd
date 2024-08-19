@@ -522,7 +522,7 @@ def forget_mask():
         if not success:
             return create_response(success=0, err=blue_id, stat=503)
 
-    if not utils.my_blueprint_or_design(user_info, db_obj, blue_id):
+    if not utils.my_blueprint_or_design(user_infof, db_obj, blue_id):
         return create_response(success=0, err='Unauthorized', stat=401)
 
     # update the mask status
@@ -740,7 +740,7 @@ def remill_mask():
         return create_response(success=0, stat=503, err=err)
 
     # get the PI emails associated with the mask
-    pi_emails = utils.getx_design_owner_emails(db_obj, blue_id, design_id, OBS_INFO)
+    pi_emails = utils.get_design_owner_emails(db_obj, blue_id, design_id, OBS_INFO)
 
     # add the two lists removing any duplicates
     email_list = list(set([EMAIL_INFO['admin'], user_info.email] + pi_emails))
