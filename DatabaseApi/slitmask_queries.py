@@ -53,23 +53,36 @@ retrieval_queries = {
 
     # "user_inventory": """
     #     SELECT d.*
-    #     FROM MaskDesign d, Observers o
-    #     WHERE o.ObId = d.DesPId
+    #     FROM MaskDesign d
+    #     WHERE d.DesPId IN (
+    #         SELECT id FROM unnest(%s) AS id
+    #     )
     #     AND (d.DesPId = %s OR d.DesId IN
     #         (SELECT DesId FROM MaskBlu WHERE BluPId = %s))
     #     ORDER BY d.stamp DESC;
     #     """,
-
+    # "user_inventory": """
+    #     SELECT d.*
+    #     FROM MaskDesign d
+    #     WHERE d.DesPId IN (
+    #         SELECT id FROM unnest(%s) AS id
+    #     )
+    #     AND (d.DesPId = %s OR d.DesId IN
+    #         (SELECT DesId FROM MaskBlu WHERE BluPId = %s))
+    #     ORDER BY d.stamp DESC;
+    #     """,
+    #
     "user_inventory": """
-        SELECT d.*
-        FROM MaskDesign d
-        WHERE d.DesPId IN (
-            SELECT id FROM unnest(%s) AS id
-        )
-        AND (d.DesPId = %s OR d.DesId IN 
-            (SELECT DesId FROM MaskBlu WHERE BluPId = %s)) 
-        ORDER BY d.stamp DESC;
-        """,
+    SELECT d.*, b.status AS mask_blu_status
+    FROM MaskDesign d
+    LEFT JOIN MaskBlu b ON d.DesId = b.DesId
+    WHERE d.DesPId IN (
+        SELECT id FROM unnest(%s) AS id
+    )
+    AND (d.DesPId = %s OR d.DesId IN 
+        (SELECT DesId FROM MaskBlu WHERE BluPId = %s)) 
+    ORDER BY d.stamp DESC;
+    """,
 
     "blueprint": """
         SELECT d.instrume, b.bluname, b.guiname
@@ -150,7 +163,7 @@ admin_queries = {
         """,
 
     "recent_barcode_owner": """
-        SELECT m.MillDate, m.MillId, m.GUIname, m.millseq, m.maskid,
+        SELECT m.MillDate, m.GUIname, m.millseq, m.maskid,
         d.DesName, d.DesId, d.despid,
         b.BluId, b.bluname,
         d.DesNslit, d.INSTRUME,
@@ -164,7 +177,7 @@ admin_queries = {
 
     "timeline": """
         SELECT b.stamp, b.Date_Use, b.bluid, b.GUIname, b.millseq, d.DesId, 
-        d.DesName, d.DesNslit, d.INSTRUME, m.MillId, m.MillDate
+        d.DesName, d.DesNslit, d.INSTRUME, m.MillDate
         FROM MaskDesign D, Mask m RIGHT JOIN MaskBlu b
         ON m.BluId = b.BluId
         WHERE b.stamp >= %s AND d.DesId = b.DesId 

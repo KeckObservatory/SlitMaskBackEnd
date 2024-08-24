@@ -125,25 +125,24 @@ def admin_search(options, db, obs_info):
     """
     log = log_fun.get_log()
 
-    results_str = "d.desid, d.desname, d.desdate, projname, ra_pnt, dec_pnt, " \
-                  "radepnt, o.keckid, o.firstnm, o.lastnm, o.email, o.institution"
+    results_str = "d.stamp, d.desid, d.desname, d.desdate, projname, ra_pnt, " \
+                  "dec_pnt, radepnt, o.keckid, o.firstnm, o.lastnm, o.email, " \
+                  "o.institution, b.status, b.guiname, " \
+                  "COALESCE(b.millseq, m.MillSeq) AS millseq"
 
 
     # we will construct a SQL query
     # query_args will become the arguments for that SQL query
     query_args = []
 
-    # TODO Design name is given here,  it seems like it should be GUIname
-
     # first we evaluate whether to limit by instrument
-    inst_query = ""
     if 'inst' in options:
-        if "DEIMOS" == options['inst']:
-            # with DEIMOS MaskDesign.INSTRUME is always DEIMOS
+        inst_query = ""
+        # if "DEIMOS" == options['inst']:
+        if re.search(r'^DEIMOS.+', options['inst']):
             inst_query = "d.INSTRUME = %s and"
             query_args.append("DEIMOS")
         elif re.search(r'^LRIS.+', options['inst']):
-            # with LRIS MaskDesign.INSTRUME might be like LRIS-ADC
             inst_query = "d.INSTRUME ilike %s and"
             query_args.append("LRIS%")
         else:
@@ -151,51 +150,59 @@ def admin_search(options, db, obs_info):
             # and we do not complain about unrecognized values
             pass
 
+        search_q = (f"SELECT {results_str} FROM MaskDesign d "
+                               f"JOIN Observers o ON o.ObId = d.DesPId "
+                               f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId ")
+        if inst_query:
+            search_q += f"WHERE {inst_query} "
+
     # step through the exclusive keys in order
-    if 'email' in options:
+    elif 'email' in options:
         # Before trying to query for matching masks
         # we want to ascertain whether email matches a known user
         # so that we can report a separate error about the
         # unrecognized value of email.
 
         search_obid = mask_user_id(db, options['email'], obs_info)
-        # obid = user_info.ob_id
 
         if search_obid == None:
             msg = f"{options['email']} - user is not in database of known mask users."
             log.warning(msg)
             return {'query': None, 'query_args': None, 'msg': msg}
 
-        adminInventoryQuery = (
-            f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
-            f"( d.DesPId = %s or d.DesId in (select DesId from MaskBlu "
-            f"where BluPId = %s)) and o.ObId = d.DesPId order by d.stamp desc;"
-        )
+        search_q = (
+            f"SELECT {results_str} FROM MaskDesign d "
+            f"JOIN Observers o ON o.ObId = d.DesPId "
+            f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+            f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+            f"WHERE (d.DesPId = %s OR d.DesId IN "
+            f"(SELECT DesId FROM MaskBlu WHERE BluPId = %s))")
+
         query_args.append(search_obid)  # does DesPId match ObId
         query_args.append(search_obid)  # does BluPId match ObId
 
     elif 'guiname' in options and options['guiname'] != "":
-        # match GUIname which the mask ingestion software should make unique
-        adminInventoryQuery = (
-            f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
-            f"d.DesId in (select DesId from MaskBlu where GUIname ilike %s) "
-            f"and o.obid = d.DesPId order by d.stamp desc;"
-        )
+        # match GUIname - which is unique by definition
+        search_q = (
+            f"SELECT {results_str} FROM MaskDesign d "
+            f"JOIN Observers o ON o.ObId = d.DesPId "
+            f"JOIN MaskBlu b ON b.DesId = d.DesId "
+            f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+            f"WHERE b.GUIname ILIKE %s ")
 
         # '%guiname%' for GUIname ilike match
         query_args.append("%" + options['guiname'] + "%")
 
     elif 'name' in options and options['name'] != "":
         # match either MaskDesign.DesName or MaskBlu.BluName
-        adminInventoryQuery = (
-            f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
-            f"d.DesName ilike %s or d.DesId in (select DesId from MaskBlu"
-            f" where BluName ilike %s) and o.obid = d.DesPId order by "
-            f"d.stamp desc;"
-        )
-        # '%name%' for DesName ilike match
+        search_q = (
+            f"SELECT {results_str} FROM MaskDesign d "
+            f"JOIN Observers o ON o.ObId = d.DesPId "
+            f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+            f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+            f"WHERE (d.DesName ILIKE %s OR b.BluName ILIKE %s) ")
+
         query_args.append("%" + options['name'] + "%")
-        # '%name%' for BluName ilike match
         query_args.append("%" + options['name'] + "%")
 
     elif 'bluid' in options and options['bluid'] != "" and options['bluid'] != [""]:
@@ -203,17 +210,20 @@ def admin_search(options, db, obs_info):
         numBlu = len(options['bluid'])
 
         if numBlu == 2:
-            # query between the given MaskBlu.BluId values
-            bilist = sorted(options['bluid'])
+            # query the range between the MaskBlu.BluId values
+            # bilist = sorted(options['bluid'])
+            bilist = options['bluid']
             minbi = bilist[0]
             maxbi = bilist[-1]
 
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
-                f"exists (select * from MaskBlu where DesId = d.DesId and BluId "
-                f"in (select BluId from MaskBlu where BluId between %s and %s)) "
-                f"and o.ObId = d.DesPId order by d.stamp desc;"
-            )
+            search_q = (
+                f"SELECT {results_str} FROM MaskDesign d "
+                f"JOIN Observers o ON o.ObId = d.DesPId "
+                f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+                f"WHERE EXISTS ("
+                f"    SELECT 1 FROM MaskBlu b2 WHERE b2.DesId = d.DesId "
+                f"AND b2.BluId BETWEEN %s AND %s)")
 
             # arguments for BluId between
             query_args.append(minbi)
@@ -221,25 +231,28 @@ def admin_search(options, db, obs_info):
 
         elif numBlu > 2:
             # query the list of given MaskBlu.BluId values
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where exists (select "
-                "* from MaskBlu where DesId = d.DesId and BluId in (select "
-                "BluId from Mask where BluId in (" +
-                ",".join("%s" for i in options['bluid']) +
-                "))) and o.ObId = d.DesPId order by d.stamp desc;"
-            )
-            
+            search_q = (
+                f"SELECT {results_str} FROM MaskDesign d "
+                f"JOIN Observers o ON o.ObId = d.DesPId "
+                f"JOIN MaskBlu b ON b.DesId = d.DesId "
+                f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+                f"WHERE EXISTS ("
+                f"    SELECT 1 FROM MaskBlu b2 WHERE b2.DesId = d.DesId "
+                f"    AND b2.BluId IN (" +
+                ",".join("%s" for i in options['bluid']) + ")) ")
+
             # arguments for BluId in ()
             for bluid in options['bluid']:
                 query_args.append(bluid)  # end for bluid
 
         else:
             # numBlu == 1
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
-                f"d.DesId in (select DesId from MaskBlu where BluId = %s)"
-                f" and o.ObId = d.DesPId order by d.stamp desc;"
-            )
+            search_q = (
+                f"SELECT {results_str} FROM MaskDesign d "
+                f"JOIN Observers o ON o.ObId = d.DesPId "
+                f"JOIN MaskBlu b ON b.DesId = d.DesId "
+                f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+                f"WHERE d.DesId IN (SELECT DesId FROM MaskBlu WHERE BluId = %s)")
 
             # argument for BluId = match
             query_args.append(options['bluid'][0])  # end if numBlu
@@ -251,37 +264,44 @@ def admin_search(options, db, obs_info):
         # query for desid is easier than for bluid
         if numDes == 2:
             # query between the given MaskDesign.DesId values
-            dilist = sorted(options['desid'])
+            # dilist = sorted(options['desid'])
+            dilist = options['desid']
             mindi = dilist[0]
             maxdi = dilist[-1]
 
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
-                f"d.DesId between %s and %s and o.ObId = d.DesPId order by "
-                f"d.stamp desc;"
-            )
+            search_q = (
+                f"SELECT {results_str} FROM MaskDesign d "
+                f"JOIN Observers o ON o.ObId = d.DesPId "
+                f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+                f"WHERE d.DesId BETWEEN %s AND %s ")
 
             # arguments for DesId between
             query_args.append(mindi)
             query_args.append(maxdi)
+
         elif numDes > 2:
             # query the list of given MaskDesign.DesId values
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
-                f"d.DesId in (" + ",".join("%s" for i in options['desid']) +
-                f" ) and o.ObId = d.DesPId order by d.stamp desc;"
-            )
+            search_q = (
+                f"SELECT {results_str} FROM MaskDesign d "
+                f"JOIN Observers o on o.ObId = d.DesPId "
+                f"LEFT join MaskBlu b on b.DesId = d.DesId "
+                f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+                f"WHERE d.DesId in (" + ",".join("%s" for i in options['desid']) + ") ")
+
             # arguments for DesId in ()
             for desid in options['desid']:
                 query_args.append(desid)  # end for desid
         else:
-            # numDes == 1
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
-                f"d.DesId = %s  and o.ObId = d.DesPId order by d.stamp desc;"
-            )
+            search_q = (
+                f"SELECT {results_str} FROM MaskDesign d "
+                f"JOIN Observers o ON o.ObId = d.DesPId "
+                f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+                f"WHERE d.DesId = %s")
+
             # argument for DesId = match
-            query_args.append(options['desid'][0])  # end if numDes
+            query_args.append(options['desid'][0])
 
     elif 'millseq' in options and options['millseq'] != "":
         # options['desid'] should be a list of MaskDesign.DesId values
@@ -289,42 +309,43 @@ def admin_search(options, db, obs_info):
 
         if numSeq == 2:
             # query between the given MaskBlu.MillSeq/Mask.MillSeq values
-            mslist = sorted(options['millseq'])
+            mslist = options['millseq']
             minms = mslist[0]
             maxms = mslist[-1]
 
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where ("
-                #   look in table MaskBlu for maybe not yet milled blueprints
-                "   exists ( select * from MaskBlu where DesId = d.DesId "
-                "and MillSeq between %s and %s ) or"
-                #   look in table Mask for maybe long ago milled masks
-                " exists ( select * from MaskBlu where DesId = d.DesId "
-                "and BluId in ( select BluId from Mask where MillSeq between "
-                "%s and %s ))) and o.Obid = d.DesPid order by d.stamp desc;"
-            )
+            search_q = (
+                f"SELECT {results_str} FROM MaskDesign d "
+                f"JOIN Observers o ON o.Obid = d.DesPid "
+                f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+                f"WHERE ("
+                f"   exists (SELECT * FROM MaskBlu WHERE DesId = d.DesId "
+                f"           AND MillSeq BETWEEN %s and %s) OR "
+                f"   exists (SELECT * FROM MaskBlu WHERE DesId = d.DesId "
+                f"           AND BluId IN (SELECT BluId FROM Mask "
+                f"              WHERE MillSeq BETWEEN %s AND %s)) )")
 
             # arguments for MaskBlu.MillSeq between
             query_args.append(minms)
             query_args.append(maxms)
+
             # arguments for Mask.MillSeq between
             query_args.append(minms)
             query_args.append(maxms)
 
         elif numSeq > 2:
             # query the list of given MaskBlu.MillSeq values
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where ("
-                #   look in table MaskBlu for maybe not yet milled blueprints
-                " exists ( select * from MaskBlu where DesId = d.DesId and "
-                "MillSeq in (" + ",".join("%s" for i in options['millseq']) +
-                ")) or"
-                #   look in table Mask for maybe long ago milled masks
-                " exists ( select * from MaskBlu where DesId = d.DesId and "
-                "BluId in ( select BluId from Mask where MillSeq in "
-                "(" + ",".join("%s" for i in options['millseq']) + ")))) "
-                "and o.Obid = d.DesPid order by d.stamp desc;"
-            )
+            search_q = (
+                f"SELECT {results_str} FROM MaskDesign d "
+                f"JOIN Observers o ON o.Obid = d.DesPid "
+                f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+                f"WHERE (EXISTS (SELECT * FROM MaskBlu WHERE DesId = d.DesId "
+                f"AND MillSeq IN (" + ",".join("%s" for i in options['millseq']) + ")) "
+                f"OR EXISTS (SELECT * FROM MaskBlu WHERE DesId = d.DesId "
+                f"AND BluId IN (SELECT BluId FROM Mask WHERE MillSeq IN "
+                f"(" + ",".join("%s" for i in options['millseq']) + ")))) ")
+
             # arguments for MaskBlu.MillSeq in ()
             for millseq in options['millseq']:
                 query_args.append(millseq)
@@ -336,25 +357,21 @@ def admin_search(options, db, obs_info):
 
         else:
             # numSeq == 1
-
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where ("
-                #   look in table MaskBlu for maybe not yet milled blueprints
-                " exists ( select * from MaskBlu where DesId = d.DesId and "
-                "MillSeq = %s ) or"
-                #   look in table Mask for maybe long ago milled masks
-                " exists ( select * from MaskBlu where DesId = d.DesId and "
-                "BluId in ( select BluId from Mask where MillSeq = %s ))) and "
-                "o.Obid = d.DesPid order by d.stamp desc;"
-            )
+            search_q = (
+                f"SELECT {results_str} FROM MaskDesign d "
+                f"JOIN Observers o ON o.Obid = d.DesPid "
+                f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+                f"WHERE (exists ( SELECT * FROM MaskBlu WHERE DesId = d.DesId "
+                f"AND MillSeq = %s ) OR exists ( SELECT * FROM MaskBlu "
+                f"WHERE DesId = d.DesId AND BluId IN ( SELECT BluId "
+                f"FROM Mask WHERE MillSeq = %s ))) ")
 
             # arguments for MaskBlu.MillSeq =
             query_args.append(options['millseq'][0])
 
             # arguments for Mask.MillSeq =
             query_args.append(options['millseq'][0])
-
-        # end if numSeq
 
     elif 'barcode' in options and options['barcode'] != "" and options['barcode'] != [""]:
         # options['barcode'] should be a list of barcode=maskId values
@@ -364,15 +381,21 @@ def admin_search(options, db, obs_info):
         # the instrument is inherent for each milled mask
         if numMasks == 2:
             # query between the given MaskId=barcode values
-            bclist = sorted(options['barcode'])
+            bclist = options['barcode']
+
             minbc = bclist[0]
             maxbc = bclist[-1]
 
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where exists ("
-                "select * from MaskBlu where DesId = d.DesId and BluId in "
-                "(select BluId from Mask where MaskId between %s and %s )) "
-                "and o.ObId = d.DesPId order by d.stamp desc;"
+            search_q = (
+                f"SELECT {results_str}, b.status FROM MaskDesign d "
+                f"JOIN Observers o ON o.ObId = d.DesPId "
+                f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+                f"WHERE EXISTS ("
+                "   SELECT 1 FROM MaskBlu "
+                "   WHERE DesId = d.DesId AND BluId IN ("
+                "       SELECT BluId FROM Mask "
+                "       WHERE MaskId BETWEEN %s AND %s)) "
             )
 
             # arguments for Mask.MaskId between
@@ -381,78 +404,85 @@ def admin_search(options, db, obs_info):
 
         elif numMasks > 2:
             # query the list of given MaskId=barcode values
-
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where exists ("
-                "select * from MaskBlu where DesId = d.DesId and BluId in ("
-                "select BluId from Mask where MaskId in (" +
-                ",".join("%s" for i in options['barcode']) +
-                "))) and o.ObId = d.DesPId order by d.stamp desc;"
+            search_q = (
+                f"SELECT {results_str}, b.status FROM MaskDesign d "
+                f"JOIN Observers o ON o.ObId = d.DesPId "
+                f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                f"LEFT JOIN Mask m ON m.BluId = b.BluId "
+                f"WHERE EXISTS ("
+                "   SELECT 1 FROM MaskBlu "
+                "   WHERE DesId = d.DesId AND BluId IN ("
+                "       SELECT BluId FROM Mask "
+                "       WHERE MaskId IN (" +
+                ",".join("%s" for i in options['barcode']) + "))) "
             )
 
             # arguments for Mask.MaskId in ()
             for barcode in options['barcode']:
-                query_args.append(barcode)  # end for barcode
+                query_args.append(barcode)
 
         else:
             # numMasks == 1
-
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where exists ("
-                "select * from MaskBlu where DesId = d.DesId and BluId in ("
-                "select BluId from Mask where MaskId = %s )) and "
-                "o.ObId = d.DesPId order by d.stamp desc;"
+            search_q = (
+                f"SELECT {results_str}, b.status FROM MaskDesign d "
+                "JOIN Observers o on o.ObId = d.DesPID "
+                "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                "WHERE EXISTS ("
+                "  SELECT 1 FROM MaskBlu WHERE DesId = d.DesId AND BluId IN ("
+                "    SELECT BluId FROM Mask WHERE MaskId = %s)) "
             )
 
             # arguments for Mask.MaskId =
             query_args.append(options['barcode'][0])
 
-        # end if numMasks
-
     elif ('milled' in options) and (options['milled'] != "all") and options['milled'] != "":
         if options['milled'] == "no":
-
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where {inst_query}"
-                f" exists (select * from MaskBlu where DesId = d.DesId and "
-                f"status < %s and o.ObId = d.DesPId order by d.stamp desc;"
+            search_q = (
+                f"SELECT {results_str}, b.status FROM MaskDesign d "
+                "JOIN Observers o on o.ObId = d.DesPID "
+                "LEFT JOIN MaskBlu b ON b.BluId = d.DesId "
+                "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                "WHERE b.status != %s "
             )
-
         else:
             # assume options['milled'] = "yes"
-
-            adminInventoryQuery = (
-                f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
-                f"exists (select * from MaskBlu where DesId = d.DesId and "
-                f"status = %s and o.ObId = d.DesPId order by d.stamp desc;"
+            search_q = (
+                f"SELECT {results_str}, b.status FROM MaskDesign d "
+                "JOIN Observers o on o.ObId = d.DesPID "
+                "LEFT JOIN MaskBlu b ON b.BluId = d.DesId "
+                "LEFT JOIN Mask m ON m.BluId = b.BluId WHERE b.status = %s "
             )
 
-        # end if options['milled']
-        # argument for MaskBlu.status
         query_args.append(MaskBluStatusMILLED)
 
     elif 'caldays' in options and options['caldays'] != "":
-        adminInventoryQuery = (
-            f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
-            f"date_part('day', (select max(Date_Use) from MaskBlu where "
-            f"DesId = d.DesId) - now()) between 0 and %s and o.ObId = d.DesPId "
-            f"order by d.stamp desc;")
+        search_q = (
+            f"SELECT {results_str}, b.status FROM MaskDesign d "
+            "JOIN Observers o ON o.ObId = d.DesPId "
+            "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+            "LEFT JOIN Mask m ON m.BluId = b.BluId "
+            "WHERE date_part('day', "
+            "(SELECT max(Date_Use) FROM MaskBlu WHERE DesId = d.DesId) - now()) "
+            "BETWEEN 0 AND %s "
+        )
+
         # argument for Date_Use diff between 0 and caldays
         query_args.append(options['caldays'])
 
     else:
         # this is the default admin query when nothing in dict
+        search_q = (
+            f"SELECT {results_str} FROM MaskDesign d "
+            "JOIN Observers o ON o.ObId = d.DesPId "
+            "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "        
+            "LEFT JOIN Mask m ON m.BluId = b.BluId ")
 
-        adminInventoryQuery = (
-            f"select {results_str} from MaskDesign d, Observers o where {inst_query} "
-            f"o.ObId = d.DesPId order by d.stamp desc;"
-        )
-
-    # end if stepping through exclusive query keys
+    search_q += f"ORDER BY d.stamp DESC;"
 
     # convert the argument list into a tuple
     queryargtup = tuple(i for i in query_args)
 
-    return {'query': adminInventoryQuery, 'query_args': queryargtup, 'msg': None}
+    return {'query': search_q, 'query_args': queryargtup, 'msg': None}
 
 

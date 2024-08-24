@@ -9,12 +9,16 @@ import psycopg2.extras
 import subprocess
 
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
+import datetime
 from slitmask_queries import get_query
 from flask import request
 from gnuplot5 import *
 
-from mask_constants import MASK_ADMIN, RECENT_NDAYS
+from mask_constants import MASK_ADMIN, RECENT_NDAYS, \
+    MaskBluStatusMILLABLE, MaskBluStatusMILLED, MaskBluStatusFORGOTTEN, \
+    MaskBluStatusFLOPPY, MaskBluStatusSHIPPED
+
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
 from collections import OrderedDict
@@ -460,34 +464,30 @@ def order_mill_queue(results):
         ('guiname', 'Mask-Name'), ('desname', 'Design-Name'),
         ('desnslit', 'Number-Slits'), ('instrume', 'Instrument'),
         ('status', 'Status'), ('millseq', 'Mill-Sequence'),
-        ('date_use', 'Use-Date'), ('stamp', 'Time-Stamp')
+        ('date_use', 'Use-Date'), ('stamp', 'Submitted')
     ]
 
-    new_results = []
-    for result in results:
-        new_results.append(OrderedDict((new_key, result[orig_key]) for orig_key, new_key in new_keys_map))
-
-    return new_results
+    return rename_keys(results, new_keys_map)
 
 
 def order_inventory(results):
+    """
+{'desid': 16911, 'desname': 's22dlyc4.file3', 'despid': 567, 'descreat': 'Autoslit 3.2', 'desdate': datetime.datetime(2023, 10, 10, 1, 27), 'desnslit': 22, 'desnobj': 0, 'projname': 's22dlyc4.au', 'instrume': 'LRIS', 'masktype': 'Autoslit', 'ra_pnt': 334.246663, 'dec_pnt': 0.321336, 'radepnt': 'FK5     ', 'equinpnt': 2000.0, 'pa_pnt': 88.0, 'date_pnt': datetime.datetime(2000, 1, 1, 5, 0), 'lst_pnt': 334.247, 'stamp': datetime.datetime(2024, 8, 21, 0, 0), 'maskumail': None, 'bluid': 16850, 'bluname': 's22dlyc4.', 'blupid': 567, 'blucreat': 'Autoslit 3.2', 'bludate': datetime.datetime(2023, 10, 10, 1, 27), 'lst_use': 334.247, 'date_use': datetime.datetime(2026, 4, 11, 0, 0), 'teleid': 2, 'atmtempc': 0.0, 'atmpres': 647.9, 'atmhumid': 0.4, 'atmttlap': 0.0065, 'refwave': 600.0, 'guiname': 'db-trans', 'millseq': None, 'status': 9, 'loc': None, 'refralg': None, 'distmeth': None}, {'desid': 16893, 'desname': 's22dlyc4.file3', 'despid': 567, 'desc
+    """
     new_keys_map = [
-        ('desid', 'Design-ID'), ('despid', 'Design-PI-ID'), #('uid', 'User ID'),
+        ('mask_blu_status', 'Status'), ('desdate', 'Design-Date'),
+        ('stamp', 'Submitted'), ('desid', 'Design-ID'),
         ('projname', 'Project-Name'), ('desname', 'Design-Name'),
         ('desnslit', 'Number-Slits'), ('desnobj', 'Number-Objects'),
         ('instrume', 'Instrument'), ('ra_pnt', 'RA'), ('dec_pnt', 'DEC'),
         ('radepnt', 'Coordinates'), ('equinpnt', 'Equinox'),
         ('pa_pnt', 'Position Angle'), ('lst_pnt', 'LST'),
         ('date_pnt', 'Observation Date'), ('masktype', 'Mask-Type'),
-        ('descreat', 'Design-Creation'), ('desdate', 'Design-Date'),
-        ('stamp', 'Time-Stamp')
+        ('descreat', 'Design-Creation'),
+        ('despid', 'Design-PI-ID')
     ]
 
-    new_results = []
-    for result in results:
-        new_results.append(OrderedDict((new_key, result[orig_key]) for orig_key, new_key in new_keys_map))
-
-    return new_results
+    return rename_keys(results, new_keys_map)
 
 
 def order_cal_inventory(results):
@@ -498,29 +498,119 @@ def order_cal_inventory(results):
         ('instrume', 'Instrument'), ('desid', 'Design-ID')
     ]
 
-    new_results = []
-    for result in results:
-        new_results.append(OrderedDict((new_key, result[orig_key]) for orig_key, new_key in new_keys_map))
-
-    return new_results
+    return rename_keys(results, new_keys_map)
 
 
 def order_search_results(results):
     # "d.desid, d.desname, d.desdate, projname, ra_pnt, dec_pnt, " \
     # "radepnt, o.keckid, o.firstnm, o.lastnm, o.email, o.institution"
+    if results:
+        print(results[0])
     new_keys_map = [
-        ('desid', 'Design-ID'), ('desname', 'Design-Name'), ('projname', 'Project-Name'),
-        ('ra_pnt', 'RA'), ('dec_pnt', 'Declination'), ('radepnt', 'System'),
-        ('keckid', 'Keck-ID'), ('firstnm', 'First-Name'), ('lastnm', 'Last-Name'),
-        ('email', 'Email'), ('institution', 'Institution'), ('desdate', 'Design-Date')
+        ('status', 'Status'), ('desdate', 'Design-Date'), ('desid', 'Design-ID'),
+        ('desname', 'Design-Name'), ('guiname', 'GUI-Name'),
+        ('projname', 'Project-Name'), ('ra_pnt', 'RA'), ('dec_pnt', 'Declination'),
+        ('radepnt', 'System'), ('keckid', 'Keck-ID'), ('firstnm', 'First-Name'),
+        ('lastnm', 'Last-Name'), ('email', 'Email'), ('institution', 'Institution'),
+        ('stamp', 'Submitted'), ('millseq', 'Seq'),
     ]
 
+    return rename_keys(results, new_keys_map)
+
+
+def order_timeline_results(results):
+    """
+     'stamp': datetime.datetime(2024, 8, 8, 14, 5),
+     'date_use': datetime.datetime(2026, 1, 1, 0, 0),
+     'bluid': 16832,
+     'guiname': 's22dlyc4',
+     'millseq': None,
+     'desid': 16893,
+     'desname': 's22dlyc4.file3',
+     'desnslit': 22,
+     'instrume': 'LRIS',
+     'milldate': datetime.datetime(2024, 8, 12, 14, 18)}
+    """
+    new_keys_map = [
+        ('date_use', 'Obs Date'), ('desname', 'DesName'), ('guiname', 'GUIName'),
+        ('desid', 'Design-ID'), ('bluid', 'Blue-ID'), ('desnslit', 'Nslits'),
+        ('desnslit', 'Nslits'), ('instrume', 'Inst'), ('stamp', 'Submitted'),
+        ('millseq', 'Seq'), ('milldate', 'Mill-Date')
+    ]
+
+    return rename_keys(results, new_keys_map)
+
+
+def order_scanned_barcodes(results):
+    """
+    Used with the Recently Scanned Barcodes table.
+    """
+    new_keys_map = [
+        ('maskid', 'Barcode'), ('milldate', 'Scanned'), ('guiname', 'GUIName'),
+        ('millseq', 'Seq'),  ('desname', 'Design-Name'), ('desid', 'Design-ID'),
+        ('bluid', 'Blue-ID'), ('desnslit', 'Nslits'), ('instrume', 'Inst'),
+        ('date_use', 'Use_Date')
+    ]
+
+    return rename_keys(results, new_keys_map)
+
+
+def order_active_masks(results):
+    """
+    Used with the Recently Scanned Barcodes table.
+    """
+    new_keys_map = [
+        ('maskid', 'Barcode'), ('guiname', 'GUI-Name'), ('millseq', 'Seq'),
+        ('date_use', 'Date-Use'),  ('status', 'Status'), ('instrume', 'Inst'),
+        ('FirstName', 'First-Name'), ('LastName', 'Last-Name'), ('Email', 'Email')
+    ]
+
+    return rename_keys(results, new_keys_map)
+
+
+def rename_keys(results, new_keys_map):
+    """
+    Rename the keys for the display on the html/js side.  Dates will be changed
+    to more readable (and sortable) form:  YYYY-MM-DD.
+    """
     new_results = []
     for result in results:
-        new_results.append(OrderedDict((new_key, result[orig_key]) for orig_key, new_key in new_keys_map))
+        new_result = OrderedDict()
+        for orig_key, new_key in new_keys_map:
+            # TODO good to fail during testin
+            # if 'orig_key' not in result:
+            #     continue
+            val = result[orig_key]
+            if isinstance(val, datetime.datetime):
+                val = format_date(val)
+            if 'status' in orig_key:
+                if val == MaskBluStatusFORGOTTEN:
+                    val = 'ARCHIVED'
+                elif val == MaskBluStatusMILLABLE:
+                    val = 'UNMILLED'
+                elif val == MaskBluStatusMILLED:
+                    val = 'READY'
+                elif val == MaskBluStatusFLOPPY:
+                    val = 'FLOPPY'
+                elif val == MaskBluStatusSHIPPED:
+                    val = 'SHIPPED'
+                else:
+                    val = 'UNDEFINED'
+
+            new_result[new_key] = val
+
+        new_results.append(new_result)
 
     return new_results
 
+
+def format_date(val):
+    """
+    Format the date to avoid the need to format on the JS/HTML side.
+    """
+    if isinstance(val, datetime.datetime):
+        return val.strftime('%Y-%m-%d')
+    return val
 
 def group_by_email(data):
     """
