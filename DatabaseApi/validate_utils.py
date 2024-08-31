@@ -115,7 +115,6 @@ def mbox2email(email_str):
     return None
 
 
-
 def valTableExt(hdul, extname):
     """
     look at FITS table hdu with EXTNAME extname
@@ -125,6 +124,7 @@ def valTableExt(hdul, extname):
         hdul - HDU list from opening a FITS file
         extname - value of EXTNAME in one of those HDUs
     """
+    log = log_fun.get_log()
     err_report = []
 
     # does this FITS table contain all known cols?
@@ -158,45 +158,24 @@ def valTableExt(hdul, extname):
         # We have to validate both the structure and the content.
 
         # this next fails with tables of zero length
-        #print("type(hdul[%s].data[%s][0]) = %s" %
-        #(extname, col, type(hdul[extname].data[col][0]))
-        #)
-
         if col not in mdfcontent[extname].knownCols.keys():
             # not an error, but surprising if extra cols exist
-            print("unexpected col %s in extname %s" % (col, extname))
+            log.warning("unexpected col %s in extname %s" % (col, extname))
         elif mdfcontent[extname].knownCols[col].dtpre in type(hdul[extname].data[col]).__name__:
             # we expect this is true for data columns
             # where the datatype is numpy.chararray
-            #print("WHOLECOL %s col %s dtpre %s in col.__name__ %s" %
-            #(extname, col,
-            #mdfcontent[extname].knownCols[col].dtpre,
-            #type(hdul[extname].data[col]).__name__)
-            #)
             pass
         elif len(hdul[extname].data[col]) == 0 and (type(hdul[extname].data[col]) == numpy.ndarray):
             # this is probably a BinTable for LRIS
-            #print("ZEROROWS %s col %s 0 rows and %s ndarray" %
-            #(extname, col,
-            #type(hdul[extname].data[col]))
-            #)
             pass
         elif mdfcontent[extname].knownCols[col].dtpre in type(hdul[extname].data[col][0]).__name__:
             # we expect this is true for numeric data columns
             # where the datatype is numpy.intNN or numpy.floatNN
-            #print("INITROW  %s col %s dtpre %s in [0].__name__ %s" %
-            #(extname, col,
-            #mdfcontent[extname].knownCols[col].dtpre,
-            #type(hdul[extname].data[col][0]).__name__)
-            #)
             pass
         else:
             # data[col] is a numpy.ndarray
-            print("BADWRONG %s col %s we say %s [col].__name__ %s [col][0].__name__ %s" %
-            (extname, col, mdfcontent[extname].knownCols[col].dtpre,
-            type(hdul[extname].data[col]).__name__,
-            type(hdul[extname].data[col][0]).__name__)
-            )
+            log.warning(f"BADWRONG {extname} col {col} we say "
+                        f"{mdfcontent[extname].knownCols[col].dtpre}")
 
     return err_report
 

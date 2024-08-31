@@ -20,7 +20,7 @@ def generate_mask_descript(blue_id, exec_dir, out_dir, KROOT):
     HDUs in the FITS file are tables which describe a slitmask
 
     The TCL function:  dbMaskOut
-        lives in SVN at: kroot/util/slitmask/xfer2keck/tcl
+        in SVN at: kroot/util/slitmask/xfer2keck/tcl
         dbMaskOut is the same Tcl program used by the DEIMOS computers
         When DEIMOS takes exposures it appends these FITS tables after the
         image HDUs.
@@ -53,8 +53,12 @@ def generate_mask_descript(blue_id, exec_dir, out_dir, KROOT):
     dbMaskOut = f"{exec_dir}/dbMaskOut"
 
     # we are going to use subprocess.call even if we are python3
-    status = subprocess.call([dbMaskOut, f"{blue_id}"], stdout=stdout_file,
-                             stderr=stderr_file)
+    try:
+        status = subprocess.call([dbMaskOut, f"{blue_id}"], stdout=stdout_file,
+                                 stderr=stderr_file)
+    except Exception as err:
+        log.error(f"Error running dbMaskOut: {err}")
+        return None, None
 
     # if dbMaskOut failed
     if status != 0:
@@ -112,8 +116,12 @@ def maskStatus(db, blue_id, newstatus):
     if status == 0:
         log.warning("commitOrRollback failed: %s" % (message))
         return False
+    if status == 2:
+        log.warning("No changes required")
+        return False
 
     return True
+
 
 ################################################
 
@@ -454,6 +462,7 @@ def get_design_owner_emails(db_obj, blue_id, design_id, obs_info_url):
 
     :return: <list> a list of emails as strings
     """
+    log = log_fun.get_log()
 
     email_list = []
     ids = {'blue_pi': None, 'design_pi': None}
@@ -496,7 +505,7 @@ def get_design_owner_emails(db_obj, blue_id, design_id, obs_info_url):
 
         results = get_keck_obs_info(obs_info_url, url_params)
         if not results or 'Email' not in results[0]:
-            print('email unknown')
+            log.warning('email unknown')
             continue
 
         email_list.append(results[0]['Email'])
@@ -535,6 +544,7 @@ def gcode_runner(blue_id, mask_fits_filename, KROOT, NCMILL_DIR, TOOL_DIAMETER):
     the mill you will have to use the linux function:  /usr/bin/unix2dos to
     convert these files to DOS for the mill to read.
     """
+    log = log_fun.get_log()
     # convert mask FITS file into G-code
     ncmill_path = f"{KROOT}/{NCMILL_DIR}"
     fits2ncc = f"{ncmill_path}/fits2ncc"
@@ -544,10 +554,14 @@ def gcode_runner(blue_id, mask_fits_filename, KROOT, NCMILL_DIR, TOOL_DIAMETER):
     STDERR = open(f"{KROOT}/var/ncmill/log/fits2ncc.{blue_id}.err", 'w')
 
     # call external function fits2ncc
-    status = subprocess.call(
-        [fits2ncc, f"{TOOL_DIAMETER}", f"{mask_fits_filename}"],
-        stdout=STDOUT, stderr=STDERR
-    )
+    try:
+        status = subprocess.call(
+            [fits2ncc, f"{TOOL_DIAMETER}", f"{mask_fits_filename}"],
+            stdout=STDOUT, stderr=STDERR
+        )
+    except Exception as err:
+        log.error(f"Error running FITS2NCC: {err}")
+        return None
 
     STDERR.close()
 

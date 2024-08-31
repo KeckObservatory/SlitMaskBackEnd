@@ -1,6 +1,8 @@
 import string
+from mask_constants import UNMILLED
 
 ONLYONE = 0
+
 
 
 class MaskInsert:
@@ -90,8 +92,9 @@ class MaskInsert:
                 float(row['AtmTTLap']),
                 float(row['RefWave']),
                 self.guiname,
+                UNMILLED,
                 # millseq is NULL at ingest
-                # status is NULL at ingest
+                # status is set to UNMILLED on ingest
                 # loc is NULL at ingest
                 # maskblu.stamp gets default now()
                 row['RefrAlg'],

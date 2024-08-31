@@ -1,4 +1,4 @@
-from mask_constants import MaskBluStatusMILLED, MaskBluStatusFORGOTTEN, PERPETUAL_DATE
+from mask_constants import READY, ARCHIVED, PERPETUAL_DATE
 
 ownership_queries = {
     "blue_person": """
@@ -37,7 +37,7 @@ retrieval_queries = {
         SELECT b.BluId, b.status, b.Date_Use, b.stamp, b.GUIname,
                b.millseq, d.desid, d.desnslit, d.desname, d.instrume
         FROM MaskBlu b, MaskDesign d
-        WHERE (b.status < {MaskBluStatusMILLED} OR b.status IS NULL)
+        WHERE (b.status < {READY} OR b.status IS NULL)
               AND d.DesId = b.DesId
         ORDER BY b.Date_Use
         """,
@@ -46,42 +46,21 @@ retrieval_queries = {
         SELECT m.MaskId, b.GUIname, b.BluName, b.BluId, b.Date_Use,
                m.milldate, d.instrume, d.desid
         FROM MaskBlu b, Mask m, MaskDesign d
-        WHERE b.status < {MaskBluStatusFORGOTTEN} 
+        WHERE b.status < {ARCHIVED} 
               AND b.Date_Use >= TIMESTAMP '{PERPETUAL_DATE}'
               AND m.bluid = b.bluid AND d.DesId = b.DesId
         """,
 
-    # "user_inventory": """
-    #     SELECT d.*
-    #     FROM MaskDesign d
-    #     WHERE d.DesPId IN (
-    #         SELECT id FROM unnest(%s) AS id
-    #     )
-    #     AND (d.DesPId = %s OR d.DesId IN
-    #         (SELECT DesId FROM MaskBlu WHERE BluPId = %s))
-    #     ORDER BY d.stamp DESC;
-    #     """,
-    # "user_inventory": """
-    #     SELECT d.*
-    #     FROM MaskDesign d
-    #     WHERE d.DesPId IN (
-    #         SELECT id FROM unnest(%s) AS id
-    #     )
-    #     AND (d.DesPId = %s OR d.DesId IN
-    #         (SELECT DesId FROM MaskBlu WHERE BluPId = %s))
-    #     ORDER BY d.stamp DESC;
-    #     """,
-    #
     "user_inventory": """
-    SELECT d.*, b.status AS mask_blu_status
-    FROM MaskDesign d
-    LEFT JOIN MaskBlu b ON d.DesId = b.DesId
-    WHERE d.DesPId IN (
-        SELECT id FROM unnest(%s) AS id
-    )
-    AND (d.DesPId = %s OR d.DesId IN 
-        (SELECT DesId FROM MaskBlu WHERE BluPId = %s)) 
-    ORDER BY d.stamp DESC;
+        SELECT d.*, b.status, b.Date_Use
+        FROM MaskDesign d
+        LEFT JOIN MaskBlu b ON d.DesId = b.DesId
+        WHERE d.DesPId IN (
+            SELECT id FROM unnest(%s) AS id
+        )
+        AND (d.DesPId = %s OR d.DesId IN 
+            (SELECT DesId FROM MaskBlu WHERE BluPId = %s)) 
+        ORDER BY d.stamp DESC;
     """,
 
     "blueprint": """
@@ -125,13 +104,12 @@ retrieval_queries = {
          WHERE DesId = %s;            
         """,
 
-    "chk_design": """
-        select DesPId from MaskDesign where DesID=%s   
-        """,
+    "chk_design": "select DesPId from MaskDesign where DesID = %s",
 
-    "chk_mask": """
-        select maskid from Mask where maskid=%s   
-        """
+    "mask_exists_blue": "select status from MaskBlu where bluid = %s",
+
+    "chk_mask": "select maskid from Mask where maskid = %s",
+    "chk_barcode_blue": "select maskid from Mask where maskid = %s and bluid = %s"
 }
 
 admin_queries = {
@@ -139,7 +117,7 @@ admin_queries = {
     "recent": """
         SELECT m.MillDate, m.MillId, m.GUIname, m.millseq, m.maskid,
         d.DesName, d.DesId,
-        b.BluId,
+        b.BluId, b.status,
         d.DesNslit, d.INSTRUME,
         b.Date_Use
         FROM Mask m, MaskBlu b, MaskDesign d
@@ -152,7 +130,7 @@ admin_queries = {
     "recent_barcode": """
         SELECT m.MillDate, m.MillId, m.GUIname, m.millseq, m.maskid,
         d.DesName, d.DesId,
-        b.BluId,
+        b.BluId, b.status,
         d.DesNslit, d.INSTRUME,
         b.Date_Use
         FROM Mask m, MaskBlu b, MaskDesign d
@@ -177,28 +155,16 @@ admin_queries = {
 
     "timeline": """
         SELECT b.stamp, b.Date_Use, b.bluid, b.GUIname, b.millseq, d.DesId, 
-        d.DesName, d.DesNslit, d.INSTRUME, m.MillDate
+        b.status, d.DesName, d.DesNslit, d.INSTRUME, m.MillDate
         FROM MaskDesign D, Mask m RIGHT JOIN MaskBlu b
         ON m.BluId = b.BluId
         WHERE b.stamp >= %s AND d.DesId = b.DesId 
         ORDER BY b.Date_Use, d.INSTRUME
         """,
 
-    # TODO replaced
-    # "mask_valid": """
-    #     select m.MaskId, m.GUIname, m.MillSeq, b.Date_Use, o.FirstNm,
-    #            o.LastNm, b.status, d.INSTRUME, o.keckid
-    #     from Mask m, MaskBlu b, Observers o, MaskDesign d
-    #     where b.BluId = m.BluId
-    #     and d.DesId = b.DesId
-    #     and o.ObId = d.DesPId
-    #     order by d.INSTRUME, m.MaskId
-    #     """,
-
-
     "mask_valid": """
     SELECT 
-        m.MaskId, m.GUIname, m.MillSeq, b.Date_Use, 
+        m.MaskId, m.GUIname, m.MillSeq, b.Date_Use, d.desid, b.bluid,
         b.status, d.INSTRUME, subquery.obid
     FROM 
         Mask m, MaskBlu b, MaskDesign d
@@ -213,89 +179,23 @@ admin_queries = {
 
     "remill_set_date": "UPDATE MaskBlu SET date_use = TIMESTAMP %s WHERE bluid = %s",
 
-    "mask_delete": "DELETE FROM Mask WHERE MaskId = %s",
+    # mask delete queries
+    "mask_table_delete": "DELETE FROM Mask WHERE MaskId = %s",
+    "mask_table_select": "SELECT * FROM Mask WHERE MaskId = %s",
+    "mask_table_bluid": "SELECT * FROM Mask WHERE Bluid = %s",
+    "blueprint_status": "SELECT * FROM MaskBlu WHERE Bluid = %s",
 
     "update_perpetual": f"""
         UPDATE MaskBlu SET Date_Use = TIMESTAMP '{PERPETUAL_DATE}' 
         WHERE DesId = %s""",
 
     "forgotten_status": f"""
-        UPDATE MaskBlu SET status = {MaskBluStatusMILLED} 
+        UPDATE MaskBlu SET status = {READY} 
         WHERE bluid IN (
             SELECT BluId FROM MaskBlu 
-            WHERE DesId = %s AND status = {MaskBluStatusFORGOTTEN}
+            WHERE DesId = %s AND status = {ARCHIVED}
             )        
         """,
-
-    # TODO deemed unnecessary - get_mask_system_users
-    # "mask_users": """
-    #     SELECT ObId, FirstNm, LastNm FROM Observers
-    #     WHERE ObId IN (SELECT DesPId FROM MaskDesign)
-    #     OR ObId IN (SELECT BluPId FROM MaskBlu)
-    #     """,
-
-    # TODO deemed unnecessary - get_mask_system_users
-    # "observer_mask": """
-    #     SELECT o.FirstNm, o.LastNm, d.DesPId, d.DesId, b.BluId, b.status,
-    #            b.BluPId, m.MaskId
-    #     FROM Observers o, MaskDesign d, MaskBlu b, Mask m
-    #     WHERE (
-    #       o.ObId in (SELECT DesPId FROM MaskDesign)
-    #       OR
-    #       o.ObId in (SELECT BluPId FROM MaskBlu)
-    #     )
-    #     AND m.BluId = b.BluId
-    #     AND b.DesId = d.DesId
-    #     AND
-    #     (
-    #       (
-    #           b.BluPId = d.DesPId
-    #       AND b.BluPId = o.ObId
-    #       )
-    #       OR
-    #       (
-    #           b.BluPId != d.DesPId
-    #       AND b.BluPId = o.ObId
-    #       )
-    #       OR
-    #       (
-    #           b.BluPId != d.DesPId
-    #       AND d.DesPId = o.ObId
-    #       )
-    #     )
-    #     ORDER BY d.DesPId
-    #     """,
-
-    # TODO deemed unnecessary - get_mask_system_users
-    # "observer_no_mask": """
-    #     select o.FirstNm, o.LastNm, d.DesPId, d.DesId, b.BluId, b.status, b.BluPId, -1 as MaskId, b.Date_Use
-    #     from Observers o, MaskDesign d, MaskBlu b
-    #     where
-    #     b.BluId not in (select BluId from Mask)
-    #     and
-    #     b.DesId = d.DesId
-    #     and
-    #     (
-    #       ( /* get mask designs of this observer with blueprints of this observer and no mask */
-    #           b.BluPId = d.DesPId
-    #       and b.BluPId = o.ObId
-    #       and o.ObId in (select DesPId from MaskDesign)
-    #       )
-    #       or
-    #       ( /* get mask designs of this observer with blueprints not of this observer and no mask */
-    #           b.BluPId != d.DesPId
-    #       and d.DesPId = o.ObId
-    #       and o.ObId in (select DesPId from MaskDesign)
-    #       )
-    #       or
-    #       ( /* get mask designs not of this observer with blueprints of this observer and no mask */
-    #           b.BluPId != d.DesPId
-    #       and b.BluPId = o.ObId
-    #       and o.ObId in (select BluPId from MaskBlu)
-    #       )
-    #     )
-    #     order by o.ObId
-    #     """
 
 }
 
@@ -352,7 +252,7 @@ ingest_queries = {
             DistMeth
         ) VALUES (
             DEFAULT, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-            %s, NULL, NULL, NULL, DEFAULT, %s, %s) 
+            %s, NULL, %s, NULL, DEFAULT, %s, %s) 
         RETURNING bluid
         """, 
     "design_slit_insert": """
@@ -492,6 +392,149 @@ auxiliary_queries = {
     """
 }
 
+results_str = "d.stamp, d.desid, d.desname, d.desdate, projname, ra_pnt, " \
+              "dec_pnt, radepnt, o.keckid, o.firstnm, o.lastnm, o.email, " \
+              "o.institution, b.status, b.guiname, " \
+              "COALESCE(b.millseq, m.MillSeq) AS millseq"
+
+admin_search_queries = {
+    "search_email": f"SELECT {results_str} FROM MaskDesign d "
+                    "JOIN Observers o ON o.ObId = d.DesPId "
+                    "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                    "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                    "WHERE (d.DesPId = %s OR d.DesId IN "
+                    "(SELECT DesId FROM MaskBlu WHERE BluPId = %s))",
+
+    "search_guiname": f"SELECT {results_str} FROM MaskDesign d "
+                      "JOIN Observers o ON o.ObId = d.DesPId "
+                      "JOIN MaskBlu b ON b.DesId = d.DesId "
+                      "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                      "WHERE b.GUIname ILIKE %s ",
+
+    "search_blue_name": f"SELECT {results_str} FROM MaskDesign d "
+                        "JOIN Observers o ON o.ObId = d.DesPId "
+                        "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                        "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                        "WHERE (d.DesName ILIKE %s OR b.BluName ILIKE %s) ",
+
+    "search_blue_id_eq2": f"SELECT {results_str} FROM MaskDesign d "
+                          "JOIN Observers o ON o.ObId = d.DesPId "
+                          "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                          "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                          "WHERE EXISTS ("
+                          "    SELECT 1 FROM MaskBlu b2 WHERE b2.DesId = d.DesId "
+                          "AND b2.BluId BETWEEN %s AND %s)",
+
+    "search_blue_id_gt2": f"SELECT {results_str} FROM MaskDesign d "
+                          "JOIN Observers o ON o.ObId = d.DesPId "
+                          "JOIN MaskBlu b ON b.DesId = d.DesId "
+                          "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                          "WHERE EXISTS ("
+                          "    SELECT 1 FROM MaskBlu b2 WHERE b2.DesId = d.DesId ",
+
+    "search_blue_id_eq1": f"SELECT {results_str} FROM MaskDesign d "
+                          "JOIN Observers o ON o.ObId = d.DesPId "
+                          "JOIN MaskBlu b ON b.DesId = d.DesId "
+                          "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                          "WHERE d.DesId IN (SELECT DesId FROM MaskBlu WHERE BluId = %s)",
+
+    "search_design_id_eq2": f"SELECT {results_str} FROM MaskDesign d "
+                            "JOIN Observers o ON o.ObId = d.DesPId "
+                            "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                            "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                            "WHERE d.DesId BETWEEN %s AND %s ",
+
+    "search_design_id_gt2": f"SELECT {results_str} FROM MaskDesign d "
+                            "JOIN Observers o on o.ObId = d.DesPId "
+                            "LEFT join MaskBlu b on b.DesId = d.DesId "
+                            "LEFT JOIN Mask m ON m.BluId = b.BluId ",
+
+    "search_design_id_eq1": f"SELECT {results_str} FROM MaskDesign d "
+                            "JOIN Observers o ON o.ObId = d.DesPId "
+                            "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                            "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                            "WHERE d.DesId = %s",
+    "search_millseq_eq2": f"SELECT {results_str} FROM MaskDesign d "
+                          "JOIN Observers o ON o.Obid = d.DesPid "
+                          "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                          "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                          "WHERE ("
+                          "   exists (SELECT * FROM MaskBlu WHERE DesId = d.DesId "
+                          "           AND MillSeq BETWEEN %s and %s) OR "
+                          "   exists (SELECT * FROM MaskBlu WHERE DesId = d.DesId "
+                          "           AND BluId IN (SELECT BluId FROM Mask "
+                          "              WHERE MillSeq BETWEEN %s AND %s)) )",
+
+    "search_millseq_gt2": f"SELECT {results_str} FROM MaskDesign d "
+                          "JOIN Observers o ON o.Obid = d.DesPid "
+                            "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                            "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                            "WHERE (EXISTS (SELECT * FROM MaskBlu WHERE DesId = d.DesId ",
+
+    "search_millseq_eq1": f"SELECT {results_str} FROM MaskDesign d "
+                        "JOIN Observers o ON o.Obid = d.DesPid "
+                        "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                        "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                        "WHERE (exists ( SELECT * FROM MaskBlu WHERE DesId = d.DesId "
+                        "AND MillSeq = %s ) OR exists ( SELECT * FROM MaskBlu "
+                        "WHERE DesId = d.DesId AND BluId IN ( SELECT BluId "
+                        "FROM Mask WHERE MillSeq = %s ))) ",
+
+   "search_barcode_eq2": f"SELECT {results_str}, b.status FROM MaskDesign d "
+                    "JOIN Observers o ON o.ObId = d.DesPId "
+                    "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                    "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                    "WHERE EXISTS ("
+                    "   SELECT 1 FROM MaskBlu "
+                    "   WHERE DesId = d.DesId AND BluId IN ("
+                    "       SELECT BluId FROM Mask "
+                    "       WHERE MaskId BETWEEN %s AND %s)) ",
+
+   "search_barcode_gt2": f"SELECT {results_str}, b.status FROM MaskDesign d "
+                        "JOIN Observers o ON o.ObId = d.DesPId "
+                        "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                        "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                        "WHERE EXISTS ("
+                        "   SELECT 1 FROM MaskBlu "
+                        "   WHERE DesId = d.DesId AND BluId IN ("
+                        "       SELECT BluId FROM Mask "
+                        "       WHERE MaskId IN (",
+
+   "search_barcode_eq1": f"SELECT {results_str}, b.status FROM MaskDesign d "
+                        "JOIN Observers o on o.ObId = d.DesPID "
+                        "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                        "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                        "WHERE EXISTS ("
+                        "  SELECT 1 FROM MaskBlu WHERE DesId = d.DesId AND BluId IN ("
+                        "    SELECT BluId FROM Mask WHERE MaskId = %s)) ",
+
+    "search_milled_no": f"SELECT {results_str}, b.status FROM MaskDesign d "
+                        "JOIN Observers o on o.ObId = d.DesPID "
+                        "LEFT JOIN MaskBlu b ON b.BluId = d.DesId "
+                        "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                        "WHERE b.status != %s ",
+
+    "search_milled_yes": f"SELECT {results_str}, b.status FROM MaskDesign d "
+                        "JOIN Observers o on o.ObId = d.DesPID "
+                        "LEFT JOIN MaskBlu b ON b.BluId = d.DesId "
+                        "LEFT JOIN Mask m ON m.BluId = b.BluId WHERE b.status = %s ",
+
+    "search_cal_days": f"SELECT {results_str}, b.status FROM MaskDesign d "
+                        "JOIN Observers o ON o.ObId = d.DesPId "
+                        "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                        "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                        "WHERE date_part('day', "
+                        "(SELECT max(Date_Use) FROM MaskBlu WHERE DesId = d.DesId) - now()) "
+                        "BETWEEN 0 AND %s ",
+
+    "search_other": f"SELECT {results_str} FROM MaskDesign d "
+                    "JOIN Observers o ON o.ObId = d.DesPId "
+                    "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "        
+                    "LEFT JOIN Mask m ON m.BluId = b.BluId "
+
+
+}
+
 
 def get_query(query_key):
     """
@@ -517,6 +560,9 @@ def get_query(query_key):
 
     if not query_str:
         query_str = auxiliary_queries.get(query_key)
+
+    if not query_str:
+        query_str = admin_search_queries.get(query_key)
 
     if not query_str:
         return None

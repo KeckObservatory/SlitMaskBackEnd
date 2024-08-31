@@ -15,9 +15,7 @@ from slitmask_queries import get_query
 from flask import request
 from gnuplot5 import *
 
-from mask_constants import MASK_ADMIN, RECENT_NDAYS, \
-    MaskBluStatusMILLABLE, MaskBluStatusMILLED, MaskBluStatusFORGOTTEN, \
-    MaskBluStatusFLOPPY, MaskBluStatusSHIPPED
+import mask_constants as consts
 
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
@@ -205,7 +203,7 @@ def is_admin(user_info, log):
 
     :return: <bool> True if user is Admin
     """
-    if user_info.user_type != MASK_ADMIN:
+    if user_info.user_type != consts.MASK_ADMIN:
         msg = f'User: {user_info.keck_id} with access level: ' \
               f'{user_info.user_type} is Unauthorized!'
         log.warning(msg)
@@ -218,11 +216,13 @@ def do_query(query_name, curse, query_params, query=None):
     log = log_fun.get_log()
     if not query:
         query = get_query(query_name)
+        if not query:
+            return False
 
     try:
         curse.execute(query, query_params)
-    except Exception as e:
-        log.error(f"{query_name} failed")
+    except Exception as err:
+        log.error(f"{query_name} failed, err: {err}")
         return False
 
     return True
@@ -269,12 +269,22 @@ def get_cfg(config, section, param_name):
 
 def chk_mask_exists(curse, design_id):
     if not do_query('chk_design', curse, (design_id,)):
-        return False, 'Database Error!',  503
+        return 503, 'Database Error!'
 
     if not get_dict_result(curse):
-        return False, f'No mask exists with design-id: {design_id}!', 200
+        return 422, f'No mask exists with design-id: {design_id}!'
 
-    return True, None, None
+    return None, None
+
+
+def chk_blue_mask_exists(curse, blue_id):
+    if not do_query('mask_exists_blue', curse, (blue_id,)):
+        return 503, f'Database Error! {e}'
+
+    if not get_dict_result(curse):
+        return 422, f"Mask with blue-id={blue_id} not in the database"
+
+    return None, None
 
 
 def chk_exists(curse, q_name, param_id):
@@ -341,7 +351,7 @@ def get_recent_day(request):
         recent_days = None
 
     if not recent_days or int(recent_days) <= 0:
-        recent_days = RECENT_NDAYS
+        recent_days = consts.RECENT_NDAYS
 
     recent_date = date.today() - timedelta(days=recent_days)
 
@@ -430,7 +440,7 @@ def get_keck_obs_info(obs_info, url_params=None):
             log.warning(f'no observer found for {url_params} {observer_dict}')
             return None
     except Exception as err:
-        print(f'error accessing url: {url}')
+        log.warning(f'error accessing url: {url}')
         return None
 
     return observer_dict
@@ -442,14 +452,17 @@ def get_keck_obs_info(obs_info, url_params=None):
 
 
 def order_mask_design(results):
-
-    # define the order and make keys GUI friendly
+    """
+    Order and rename result columns to format for the user interface.
+    """
     new_keys_map = [
-        ('instrume', 'Instrument'), ('desname', 'Design-Name'), ('projname', 'Project-Name'),
-        ('ra_pnt', 'RA'), ('dec_pnt', 'DEC'), ('equinpnt', 'Equinox'),
-        ('lst_pnt', 'LST-Observation'), ('pa_pnt', 'Postion-Angle'), ('radepnt', 'Coord-Representation'),
-        ('date_pnt', 'Date-Observation'), ('desdate', 'Design-Date'), ('date_pnt', 'Date-Observation'),
-        ('desnslit', 'Design-Number-Slits'), ('desnobj', 'Design-Object-Number'), ('descreat', 'Design-Creation'),
+        ('instrume', 'Instrument'), ('desname', 'Design-Name'),
+        ('projname', 'Project-Name'), ('ra_pnt', 'RA'), ('dec_pnt', 'DEC'),
+        ('equinpnt', 'Equinox'), ('lst_pnt', 'LST-Observation'),
+        ('pa_pnt', 'Postion-Angle'), ('radepnt', 'Coord-Representation'),
+        ('date_pnt', 'Date-Observation'), ('desdate', 'Design-Date'),
+        ('date_pnt', 'Date-Observation'), ('desnslit', 'Design-Number-Slits'),
+        ('desnobj', 'Design-Object-Number'), ('descreat', 'Design-Creation'),
         ('desid', 'Design-ID'), ('masktype', 'Mask-Type'), ('despid', 'User-Id-Design'),
     ]
 
@@ -457,8 +470,9 @@ def order_mask_design(results):
 
 
 def order_mill_queue(results):
-
-    # define the order and make keys GUI friendly
+    """
+    Order and rename result columns to format for the user interface.
+    """
     new_keys_map = [
         ('desid', 'Design-ID'), ('bluid', 'Blue-ID'),
         ('guiname', 'Mask-Name'), ('desname', 'Design-Name'),
@@ -472,18 +486,18 @@ def order_mill_queue(results):
 
 def order_inventory(results):
     """
-{'desid': 16911, 'desname': 's22dlyc4.file3', 'despid': 567, 'descreat': 'Autoslit 3.2', 'desdate': datetime.datetime(2023, 10, 10, 1, 27), 'desnslit': 22, 'desnobj': 0, 'projname': 's22dlyc4.au', 'instrume': 'LRIS', 'masktype': 'Autoslit', 'ra_pnt': 334.246663, 'dec_pnt': 0.321336, 'radepnt': 'FK5     ', 'equinpnt': 2000.0, 'pa_pnt': 88.0, 'date_pnt': datetime.datetime(2000, 1, 1, 5, 0), 'lst_pnt': 334.247, 'stamp': datetime.datetime(2024, 8, 21, 0, 0), 'maskumail': None, 'bluid': 16850, 'bluname': 's22dlyc4.', 'blupid': 567, 'blucreat': 'Autoslit 3.2', 'bludate': datetime.datetime(2023, 10, 10, 1, 27), 'lst_use': 334.247, 'date_use': datetime.datetime(2026, 4, 11, 0, 0), 'teleid': 2, 'atmtempc': 0.0, 'atmpres': 647.9, 'atmhumid': 0.4, 'atmttlap': 0.0065, 'refwave': 600.0, 'guiname': 'db-trans', 'millseq': None, 'status': 9, 'loc': None, 'refralg': None, 'distmeth': None}, {'desid': 16893, 'desname': 's22dlyc4.file3', 'despid': 567, 'desc
+    Order and rename result columns to format for the user interface.
     """
     new_keys_map = [
-        ('mask_blu_status', 'Status'), ('desdate', 'Design-Date'),
-        ('stamp', 'Submitted'), ('desid', 'Design-ID'),
-        ('projname', 'Project-Name'), ('desname', 'Design-Name'),
-        ('desnslit', 'Number-Slits'), ('desnobj', 'Number-Objects'),
-        ('instrume', 'Instrument'), ('ra_pnt', 'RA'), ('dec_pnt', 'DEC'),
-        ('radepnt', 'Coordinates'), ('equinpnt', 'Equinox'),
-        ('pa_pnt', 'Position Angle'), ('lst_pnt', 'LST'),
+        ('status', 'Status'), ('desdate', 'Design-Date'),
+        ('date_use', 'Date-Use'), ('stamp', 'Submitted'),
+        ('projname', 'Project-Name'), ('guiname', 'GUI-Name'),
+        ('desname', 'Design-Name'),
+        ('desnslit', 'Number-Slits'), ('instrume', 'Instrument'),
+        ('ra_pnt', 'RA'), ('dec_pnt', 'DEC'), ('radepnt', 'Coordinates'),
+        ('equinpnt', 'Equinox'), ('pa_pnt', 'Position Angle'),
         ('date_pnt', 'Observation Date'), ('masktype', 'Mask-Type'),
-        ('descreat', 'Design-Creation'),
+        ('descreat', 'Design-Software'), ('desid', 'Design-ID'),
         ('despid', 'Design-PI-ID')
     ]
 
@@ -491,10 +505,13 @@ def order_inventory(results):
 
 
 def order_cal_inventory(results):
+    """
+    Order and rename result columns to format for the user interface.
+    """
     new_keys_map = [
         ('maskid', 'Mask-ID'), ('guiname', 'Name'), ('bluname', 'Blueprint-Name'),
         ('bluid', 'Blue-ID'), ('date_use', 'Date-Use'),
-        ('milldate', 'Mill-Date'), ('instrume', 'Instrument'),
+        ('milldate', 'Scanned'), ('instrume', 'Instrument'),
         ('instrume', 'Instrument'), ('desid', 'Design-ID')
     ]
 
@@ -502,10 +519,9 @@ def order_cal_inventory(results):
 
 
 def order_search_results(results):
-    # "d.desid, d.desname, d.desdate, projname, ra_pnt, dec_pnt, " \
-    # "radepnt, o.keckid, o.firstnm, o.lastnm, o.email, o.institution"
-    if results:
-        print(results[0])
+    """
+    Order and rename result columns to format for the user interface.
+    """
     new_keys_map = [
         ('status', 'Status'), ('desdate', 'Design-Date'), ('desid', 'Design-ID'),
         ('desname', 'Design-Name'), ('guiname', 'GUI-Name'),
@@ -520,22 +536,14 @@ def order_search_results(results):
 
 def order_timeline_results(results):
     """
-     'stamp': datetime.datetime(2024, 8, 8, 14, 5),
-     'date_use': datetime.datetime(2026, 1, 1, 0, 0),
-     'bluid': 16832,
-     'guiname': 's22dlyc4',
-     'millseq': None,
-     'desid': 16893,
-     'desname': 's22dlyc4.file3',
-     'desnslit': 22,
-     'instrume': 'LRIS',
-     'milldate': datetime.datetime(2024, 8, 12, 14, 18)}
+    Order and rename result columns to format for the user interface.
     """
     new_keys_map = [
-        ('date_use', 'Obs Date'), ('desname', 'DesName'), ('guiname', 'GUIName'),
-        ('desid', 'Design-ID'), ('bluid', 'Blue-ID'), ('desnslit', 'Nslits'),
-        ('desnslit', 'Nslits'), ('instrume', 'Inst'), ('stamp', 'Submitted'),
-        ('millseq', 'Seq'), ('milldate', 'Mill-Date')
+        ('status', 'Status'), ('date_use', 'Obs Date'), ('ndays', 'Days-Notice'),
+        ('desname', 'DesName'), ('guiname', 'GUIName'), ('desid', 'Design-ID'),
+        ('bluid', 'Blue-ID'), ('desnslit', 'Nslits'), ('desnslit', 'Nslits'),
+        ('instrume', 'Inst'), ('stamp', 'Submitted'), ('millseq', 'Seq'),
+        ('milldate', 'Scanned')
     ]
 
     return rename_keys(results, new_keys_map)
@@ -543,13 +551,13 @@ def order_timeline_results(results):
 
 def order_scanned_barcodes(results):
     """
-    Used with the Recently Scanned Barcodes table.
+    Order and rename result columns to format for the user interface.
     """
     new_keys_map = [
-        ('maskid', 'Barcode'), ('milldate', 'Scanned'), ('guiname', 'GUIName'),
-        ('millseq', 'Seq'),  ('desname', 'Design-Name'), ('desid', 'Design-ID'),
-        ('bluid', 'Blue-ID'), ('desnslit', 'Nslits'), ('instrume', 'Inst'),
-        ('date_use', 'Use_Date')
+        ('status', 'Status'), ('maskid', 'Barcode'), ('milldate', 'Scanned'),
+        ('guiname', 'GUIName'), ('millseq', 'Seq'),  ('desname', 'Design-Name'),
+        ('desid', 'Design-ID'), ('bluid', 'Blue-ID'), ('desnslit', 'Nslits'),
+        ('instrume', 'Inst'), ('date_use', 'Use_Date')
     ]
 
     return rename_keys(results, new_keys_map)
@@ -557,7 +565,7 @@ def order_scanned_barcodes(results):
 
 def order_active_masks(results):
     """
-    Used with the Recently Scanned Barcodes table.
+    Order and rename result columns to format for the user interface.
     """
     new_keys_map = [
         ('maskid', 'Barcode'), ('guiname', 'GUI-Name'), ('millseq', 'Seq'),
@@ -577,25 +585,17 @@ def rename_keys(results, new_keys_map):
     for result in results:
         new_result = OrderedDict()
         for orig_key, new_key in new_keys_map:
-            # TODO good to fail during testin
-            # if 'orig_key' not in result:
-            #     continue
+            # skip key if not found to avoid causing an error
+            if orig_key not in result:
+                continue
             val = result[orig_key]
             if isinstance(val, datetime.datetime):
                 val = format_date(val)
             if 'status' in orig_key:
-                if val == MaskBluStatusFORGOTTEN:
-                    val = 'ARCHIVED'
-                elif val == MaskBluStatusMILLABLE:
-                    val = 'UNMILLED'
-                elif val == MaskBluStatusMILLED:
-                    val = 'READY'
-                elif val == MaskBluStatusFLOPPY:
-                    val = 'FLOPPY'
-                elif val == MaskBluStatusSHIPPED:
-                    val = 'SHIPPED'
-                else:
-                    val = 'UNDEFINED'
+                # UNKNOWN should not exist in the new database (post 2024)
+                val = consts.STATUS_STR[val]
+            if 'millseq' in orig_key and not val:
+                val = 'UNK'
 
             new_result[new_key] = val
 
@@ -612,25 +612,12 @@ def format_date(val):
         return val.strftime('%Y-%m-%d')
     return val
 
+
 def group_by_email(data):
     """
     Used to group the recently scanned masks by the observer email to be
     used with an email to send out notifications of newly milled masks to the
     PIs.
-    > Mask for DEIMOS
-    > GUI name           M31_1
-    > Mill date          Jul 12 2024 12:50PM
-    > Mask barcode       12789
-    > Blueprint name     1001
-    > Blueprint owner    David Jones <dojones@hawaii.edu>
-    > Blueprint date_use Jul 28 2024
-    > Blueprint Id       16801
-    > Design name        1001
-    > Design owner       David Jones <dojones@hawaii.edu>
-    > Design Id          16862
-    > Design #slits      63
-    > Design create date Jun  4 2024  9:30AM
-
     """
 
     grouped_data = defaultdict(list)

@@ -5,6 +5,7 @@ from os import path
 from datetime import datetime, timedelta, date
 
 from io import BytesIO
+from functools import wraps
 from flask import Flask, request, make_response, redirect, send_file
 
 import re
@@ -20,8 +21,8 @@ import admin_search_utils as search_utils
 from wspgconn import WsPgConn
 from ingest_fun import IngestFun
 from general_utils import do_query, is_admin
-from mask_constants import MASK_ADMIN, MASK_USER, RECENT_NDAYS, USER_TYPE_STR, \
-    MaskBluStatusFORGOTTEN, MaskBluStatusMILLABLE, MaskBluStatusMILLED, TOOL_DIAMETER
+
+import mask_constants as consts
 
 # set the path of the files
 APP_PATH = path.abspath(path.dirname(__file__))
@@ -39,6 +40,18 @@ def log_response_code(response):
     """
     log.info(f'Response code: {response.status_code}')
     return response
+
+
+def init_required(fun):
+    @wraps(fun)
+    def decorated_function(*args, **kwargs):
+        db_obj, user_info = init_api()
+
+        if not user_info:
+            return redirect(LOGIN_URL)
+
+        return fun(db_obj=db_obj, user_info=user_info, *args, **kwargs)
+    return decorated_function
 
 
 def serialize_datetime(obj):
@@ -68,9 +81,7 @@ def create_response(success=1, data={}, err='', stat=200):
 
     result_dict = {'success': success, 'data': data, 'error': err}
     response = make_response(
-        json.dumps(
-            result_dict, indent=2, sort_keys=False, default=serialize_datetime
-        )
+        json.dumps(result_dict, indent=2, default=serialize_datetime)
     )
     response.status_code = stat
     response.headers['Content-Type'] = 'application/json'
@@ -91,7 +102,7 @@ class UserInfo:
 
     def user_type_to_str(self):
         try:
-            return USER_TYPE_STR[self.user_type]
+            return consts.USER_TYPE_STR[self.user_type]
         except IndexError:
             return 'undefined'
 
@@ -208,7 +219,7 @@ def upload_mdf():
 
         # create the mill / gcode files [gcodepath, f2nlogpath]
         gcode_files = utils.gcode_runner(blue_id, mask_fits_filename, KROOT,
-                                         NCMILL_DIR, TOOL_DIAMETER)
+                                         NCMILL_DIR, consts.TOOL_DIAMETER)
         if not gcode_files or len(gcode_files) < 2:
             return create_response(
                 success=0, stat=401,
@@ -251,13 +262,13 @@ def get_mill_queue():
 @app.route("/slitmask/mill-overdue")
 def get_overdue():
     """
-    Find any masks in the milling queue that are marked to used soon.  Soon
-    is set as 7 days in the future.
+    Find any masks in the milling queue that are marked to used soon.
+    Soon is set as 35 days in the future.
 
     :return: <json> list of mask objects which want to be milled
     """
     ordered_results = masks_need_mill()
-    date_use_overdue = datetime.now() + timedelta(days=7)
+    date_use_overdue = datetime.now() + timedelta(days=consts.OVERDUE)
 
     overdue = []
     for result in ordered_results:
@@ -278,7 +289,7 @@ def masks_need_mill():
     """
     db_obj, user_info = init_api()
     if not user_info:
-        db_obj, user_info = init_api(keck_id=MASK_ADMIN)
+        db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
 
     curse = db_obj.get_dict_curse()
     if not do_query('mill', curse, None):
@@ -291,7 +302,8 @@ def masks_need_mill():
 
 
 @app.route("/slitmask/calibration-masks")
-def get_calibration_masks():
+@init_required
+def get_calibration_masks(db_obj, user_info):
     """
     get the list of masks with indefinitely long life, i.e., masks with Date_Use
     in the far future,  which corresponds to Tcl maskEverlasting.cgi.sin
@@ -300,10 +312,6 @@ def get_calibration_masks():
 
     :return: <str> list of calibration masks
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     curse = db_obj.get_dict_curse()
     if not do_query('standard_mask', curse, None):
         return create_response(success=0, err='Database Error!', stat=503)
@@ -315,30 +323,26 @@ def get_calibration_masks():
 
 
 @app.route("/slitmask/user-type")
-def determine_user_type():
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
+@init_required
+def determine_user_type(db_obj, user_info):
     return create_response(data={'user_type': user_info.user_type_to_str()})
 
 
 @app.route("/slitmask/user-available-inventory")
-def get_user_available_inventory():
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
+@init_required
+def get_user_available_inventory(db_obj, user_info):
     sucess, results = get_user_inventory_fun(db_obj, user_info)
     filtered_results = []
     for mask in results:
-        if mask['mask_blu_status'] in (MaskBluStatusMILLED, MaskBluStatusMILLABLE):
+        if mask['status'] in (consts.READY, consts.UNMILLED):
             filtered_results.append(mask)
 
     return create_response(data=gen_utils.order_inventory(filtered_results))
 
 
 @app.route("/slitmask/user-mask-inventory")
-def get_user_mask_inventory():
+@init_required
+def get_user_mask_inventory(db_obj, user_info):
     """
     get a list of mask records for the logged-in user
 
@@ -346,10 +350,6 @@ def get_user_mask_inventory():
 
     :return: <str> array of mask records
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     success, results = get_user_inventory_fun(db_obj, user_info)
     if not success:
         return create_response(success=0, err='Database Error!', stat=503)
@@ -373,14 +373,14 @@ def get_user_inventory_fun(db_obj, user_info):
     return True, results
 
 
-
 @app.route("/slitmask/user-file-upload-history")
 def get_user_file_upload_history():
     return create_response(err='NOT IMPLEMENTED', data={})
 
 
 @app.route("/slitmask/mask-plot")
-def get_mask_plot():
+@init_required
+def get_mask_plot(db_obj, user_info):
     """
     make a plot of a mask blueprint corresponds to Tcl plotMask.cgi.sin
 
@@ -392,10 +392,6 @@ def get_mask_plot():
 
     :return: <str> path to SVG file with the plot
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     blue_id = request.args.get('blue-id')
     design_id = request.args.get('design-id')
 
@@ -405,7 +401,7 @@ def get_mask_plot():
             err=f'One of blue-id or design-id are required!'
         )
 
-    if user_info.user_type not in (MASK_ADMIN, MASK_USER):
+    if user_info.user_type not in (consts.MASK_ADMIN, consts.MASK_USER):
         msg = f'User: {user_info.keck_id} with access: {user_info.user_type} ' \
               f'is Unauthorized!'
         return create_response(success=0, err=msg, stat=401)
@@ -429,8 +425,10 @@ def get_mask_plot():
     info_results = gen_utils.get_dict_result(curse)
     len_results = len(info_results)
     if len_results < 1:
-        return create_response(success=0, stat=200,
-                               err=f'No mask found with blueprint ID: {blue_id}!')
+        return create_response(
+            success=0, stat=422,
+            err=f'No mask found with blueprint ID: {blue_id}!'
+        )
 
     elif len_results > 1:
         msg = f"database error: {len_results} > 1 masks with blueprint ID {blue_id}"
@@ -449,7 +447,8 @@ def get_mask_plot():
 
 
 @app.route("/slitmask/user-access-level")
-def get_user_access_level():
+@init_required
+def get_user_access_level(db_obj, user_info):
     """
     report privileges accorded to the logged-in user
 
@@ -457,18 +456,14 @@ def get_user_access_level():
 
     :return: <str> the logged in user's access -- admin, etc.
     """
-    # initialize db,  get user information,  redirect if not logged in.
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     log.info(f"user {user_info.keck_id} as {user_info.user_str}")
 
     return create_response(data={'access_level': user_info.user_str})
 
 
 @app.route("/slitmask/extend-mask-use-date")
-def extend_mask_use_date():
+@init_required
+def extend_mask_use_date(db_obj, user_info):
     """
     change the Use_Date to extend lifetime of this mask design
 
@@ -480,10 +475,6 @@ def extend_mask_use_date():
 
     :return: <str> a message regarding the success of failure of the extenstion.
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     num_days = request.args.get('number-days')
     design_id = request.args.get('design-id')
     if not design_id:
@@ -491,7 +482,7 @@ def extend_mask_use_date():
                                err=f'design-id is a required parameter')
 
     if not num_days:
-        num_days = RECENT_NDAYS
+        num_days = consts.RECENT_NDAYS
 
     curse = db_obj.get_dict_curse()
 
@@ -501,8 +492,9 @@ def extend_mask_use_date():
     if not utils.my_design(user_info, curse, design_id):
         return create_response(success=0, err='Unauthorized', stat=401)
 
-    exists, err, stat_code = gen_utils.chk_mask_exists(curse, design_id)
-    if not exists:
+    # check that the mask exists
+    stat_code, err = gen_utils.chk_mask_exists(curse, design_id)
+    if stat_code:
         return create_response(success=0, err=err, stat=stat_code)
 
     if not do_query('extend_update', curse, (num_days, design_id)):
@@ -518,18 +510,26 @@ def extend_mask_use_date():
     return create_response(data={'msg': msg})
 
 
-@app.route("/slitmask/forget-mask-script")
-def forget_mask_script():
+@app.route("/slitmask/archive-mask-script")
+def archive_mask_script():
+    """
+    Used by the HIT LIST purge email to mark masks with use date > 6 months old
+    as ARCHIVED.
+    """
+    db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
+    user_info = UserInfo(db_obj, None, consts.MASK_ADMIN, None)
 
-    db_obj, user_info = init_api(keck_id=MASK_ADMIN)
-    user_info = UserInfo(db_obj, None, MASK_ADMIN, None)
+    return archive_mask_fun(db_obj, user_info)
 
-    return forget_mask_fun(db_obj, user_info)
 
 @app.route("/slitmask/archive-mask")
-def forget_mask():
+@init_required
+def archive_mask(db_obj, user_info):
     """
-    Forget about a mask,  which changes the status to MaskBluStatusFORGOTTEN.
+    Set a mask as ARCHIVED,  which changes the status to consts.ARCHIVED.
+
+    The legacy terminology was to 'FORGET' a mask,  but since the 2024 upgrade
+    the functionality is slightly different
 
     On the user interface this is considered ARCHIVED.  The mask is still
     in the database and available,  but if milled the physical mask has been
@@ -539,15 +539,13 @@ def forget_mask():
 
     :return: <str> a message regarding the success of failure of the extension.
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
-    return forget_mask_fun(db_obj, user_info)
+    return archive_mask_fun(db_obj, user_info)
 
 
-def forget_mask_fun(db_obj, user_info):
-
+def archive_mask_fun(db_obj, user_info):
+    """
+    The function to do the archiving work.
+    """
     blue_id = request.args.get('blue-id')
     design_id = request.args.get('design-id')
 
@@ -559,13 +557,22 @@ def forget_mask_fun(db_obj, user_info):
         curse = db_obj.get_dict_curse()
         success, blue_id = utils.desid_to_bluid(design_id, curse)
         if not success:
-            return create_response(success=0, err=blue_id, stat=503)
+            return create_response(
+                success=0, stat=422,
+                err=f"The blue-id was not found for design-id: {design_id}"
+            )
+
+    # check that mask exists
+    curse = db_obj.get_dict_curse()
+    stat, err = gen_utils.chk_blue_mask_exists(curse, blue_id)
+    if stat:
+        return create_response(success=0, stat=stat, err=err)
 
     if not utils.my_blueprint_or_design(user_info, db_obj, blue_id):
         return create_response(success=0, err='Unauthorized', stat=401)
 
     # update the mask status
-    success = utils.maskStatus(db_obj, blue_id, MaskBluStatusFORGOTTEN)
+    success = utils.maskStatus(db_obj, blue_id, consts.ARCHIVED)
 
     if not success:
         return create_response(success=0, err='Database Error!', stat=503)
@@ -574,7 +581,8 @@ def forget_mask_fun(db_obj, user_info):
 
 
 @app.route("/slitmask/mask-description-file")
-def get_mask_description_file():
+@init_required
+def get_mask_description_file(db_obj, user_info):
     """
 
     api2_3.py - getMaskFile(db, blue_id)
@@ -590,10 +598,6 @@ def get_mask_description_file():
         fitsfile    path to the FITS tables file written by dbMaskOut
         alifile     path to the alignment box file written by dbMaskOut
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     blue_id = request.args.get('blue-id')
     if not blue_id:
         return create_response(success=0, stat=401,
@@ -628,7 +632,8 @@ def get_mask_description_file():
 
 @app.route("/slitmask/mill-file")
 @app.route("/slitmask/mill-files")
-def mill_files():
+@init_required
+def mill_files(db_obj, user_info):
     """
     In the api specification section 2.3 this is "millMask"
     There is nothing in the original cgiTcl like "millMask"
@@ -666,12 +671,7 @@ def mill_files():
             kroot/util/ncmill/acpncc/
             converts FITS file into CNC code for mill
      """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     blue_id = request.args.get('blue-id')
-    print(f'here {blue_id}')
     if not blue_id:
         return create_response(success=0, stat=401,
                                err=f'The mask blueprint ID, blue-id is required!')
@@ -691,10 +691,12 @@ def mill_files():
 
     # create the mill / gcode files
     gcode_files = utils.gcode_runner(blue_id, mask_fits_filename, KROOT,
-                                     NCMILL_DIR, TOOL_DIAMETER)
+                                     NCMILL_DIR, consts.TOOL_DIAMETER)
     if not gcode_files:
-        create_response(success=0, stat=401,
-                        err=f'There was a problem creating the gcode files!')
+        return create_response(
+            success=0, stat=401,
+            err=f'There was a problem creating the gcode files!'
+        )
 
     # Create an in-memory zip file to store the files
     zip_buffer = BytesIO()
@@ -710,7 +712,8 @@ def mill_files():
 
 # TODO needs to be updated to email PI as well -- when ready!
 @app.route("/slitmask/remill-mask")
-def remill_mask():
+@init_required
+def remill_mask(db_obj, user_info):
     """
     api2_3.py - remillBlueprint( db, bluid, newdate )
 
@@ -732,7 +735,7 @@ def remill_mask():
     side effects:
     MaskBlu with bluid gets
       date_use        = newdate
-      status          = MILLABLE
+      status          = UNMILLED
       millseq         = null string
 
     this needs to know the logged-in user id for logging and for e-mail
@@ -746,10 +749,6 @@ def remill_mask():
     this should trigger e-mail to the mask Design and Blueprint owners
     this must   trigger e-mail to the mask admins
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     blue_id = request.args.get('blue-id')
     design_id = request.args.get('design-id')
     new_use_date = request.args.get('use-date')
@@ -772,7 +771,7 @@ def remill_mask():
         return create_response(success=0, err='Database Error!', stat=503)
 
     # mark blueprint as Millable
-    success = utils.maskStatus(db_obj, blue_id, MaskBluStatusMILLABLE)
+    success = utils.maskStatus(db_obj, blue_id, consts.UNMILLED)
     if not success:
         err = f'Database Error! Mask with blue-id={blue_id}, design-id={design_id} ' \
               f'was not able to mark mask to be re-milled'
@@ -804,7 +803,8 @@ def remill_mask():
 
 
 @app.route("/slitmask/admin-search")
-def admin_search():
+@init_required
+def admin_search(db_obj, user_info):
     """
     Find masks by the search options,  key-value JSON of options.
 
@@ -812,10 +812,6 @@ def admin_search():
 
     :return: <JSON object> data = the search results.
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     search_options = request.args.get('search-options')
 
     if not search_options:
@@ -843,8 +839,6 @@ def admin_search():
         return create_response(success=0, err='Database Error!', stat=503)
 
     results = gen_utils.get_dict_result(curse)
-    if results:
-        print(results[0])
     ordered_results = gen_utils.order_search_results(results)
 
     return create_response(success=1, data=ordered_results)
@@ -869,7 +863,7 @@ def get_recently_scanned_barcodes():
     # initialize db,  get user information,  redirect if not logged in.
     db_obj, user_info = init_api()
     if not user_info:
-        db_obj, user_info = init_api(keck_id=MASK_ADMIN)
+        db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
     elif not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
@@ -904,11 +898,12 @@ def get_users_recently_milled():
     # initialize db,  get user information,  redirect if not logged in.
     db_obj, user_info = init_api()
     if not user_info:
-        db_obj, user_info = init_api(keck_id=MASK_ADMIN)
+        db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
     elif not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
-    recent_date = gen_utils.get_recent_day(request)
+    # recent_date = gen_utils.get_recent_day(request)
+    recent_date = date.today() - timedelta(days=1)
     query_name = 'recent_barcode_owner'
 
     curse = db_obj.get_dict_curse()
@@ -932,7 +927,8 @@ def get_users_recently_milled():
 
 
 @app.route("/slitmask/timeline-report")
-def get_timeline_report():
+@init_required
+def get_timeline_report(db_obj, user_info):
     """
     report about recently submitted masks corresponds to Tcl timely.cgi.sin
 
@@ -943,10 +939,6 @@ def get_timeline_report():
 
     :return: list of the timeline information
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     if not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
@@ -958,17 +950,23 @@ def get_timeline_report():
         return create_response(success=0, err='Database Error!', stat=503)
 
     results = gen_utils.get_dict_result(curse)
+
+    # add the number of days the mask was submitted before the observation days
+    for result in results:
+        result['ndays'] = (result['date_use'] - result['stamp']).days
+
     clean_results = gen_utils.order_timeline_results(results)
 
     return create_response(data=clean_results)
 
 
 @app.route("/slitmask/all-active-masks")
-def get_all_active_masks():
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
+@init_required
+def get_all_active_masks(db_obj, user_info):
+    """
+    The results are a list of all the masks that are considered "READY" which
+    are milled and available at the summit.
+    """
     # initialize db,  get user information,  redirect if not logged in.
     if not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
@@ -977,26 +975,23 @@ def get_all_active_masks():
     if not success:
         return create_response(success=0, err='Database Error!', stat=503)
 
-    # remove any masks with status != MILLED (READY)
+    # remove any masks with status != READY (READY)
     filtered_results = []
     for mask in results:
-        if mask['status'] == MaskBluStatusMILLED:
+        if mask['status'] == consts.READY:
             filtered_results.append(mask)
 
     return create_response(data=gen_utils.order_active_masks(filtered_results))
 
 
 @app.route("/slitmask/all-active-masks-file")
-def get_all_active_masks_file():
+@init_required
+def get_all_active_masks_file(db_obj, user_info ):
     """
     The route produces a text file output of the results of all active masks.
     This is currently used by the support technicians when cleaning out masks
     that have been marked as archived.
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     # initialize db,  get user information,  redirect if not logged in.
     if not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
@@ -1005,10 +1000,10 @@ def get_all_active_masks_file():
     if not success:
         return create_response(success=0, err='Database Error!', stat=503)
 
-    # remove any masks with status != MILLED (READY)
+    # remove any masks with status != READY (READY)
     filtered_results = []
     for mask in results:
-        if mask['status'] == MaskBluStatusMILLED:
+        if mask['status'] == consts.READY:
             filtered_results.append(mask)
 
     # order masks,  and also clean the date into a more user-friendly format
@@ -1033,14 +1028,14 @@ def get_all_active_masks_file():
 
 
 # TODO this should not be exposed
-@app.route("/slitmask/all-valid-masks-script")
+@app.route("/slitmask/all-active-masks-script")
 def get_all_valid_masks_script():
     """
     Used by the mask pruner script to get all the masks.
 
     :return: <json> all valid masks in JSON format
     """
-    db_obj, user_info = init_api(keck_id=MASK_ADMIN)
+    db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
 
     success, results = get_all_valid_masks_func(db_obj)
     if not success:
@@ -1085,25 +1080,10 @@ def get_all_valid_masks_func(db_obj):
 
     return True, results
 
-# @app.route("/slitmask/all-active-masks")
-# def all_active_masks():
-#     """
-#     The results are all masks that are milled but not forgotten (archived)
-#     """
-#
-#     db_obj, user_info = init_api()
-#     if not user_info:
-#         return redirect(LOGIN_URL)
-#
-#     # initialize db,  get user information,  redirect if not logged in.
-#     if not is_admin(user_info, log):
-#         return create_response(success=0, err='Unauthorized', stat=401)
-#
-#     results = get_all_valid_masks_func(db_obj)
-
 
 @app.route("/slitmask/delete-mask")
-def delete_mask():
+@init_required
+def delete_mask(db_obj, user_info):
     """
     update the database to delete the record with maskid from the Mask table
     only.  The remainder of the mask remains in the database.
@@ -1116,28 +1096,44 @@ def delete_mask():
     :return: <str> message if the mask was deleted successfully or not
 
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     mask_id = request.args.get('mask-id')
-    if not mask_id:
-        return create_response(success=0, stat=401,
-                               err=f'mask-id is a required parameter')
-    mask_id = int(mask_id)
+    blue_id = request.args.get('blue-id')
+
+    if not mask_id or not blue_id:
+        return create_response(success=0, stat=422,
+                               err=f'mask-id and blue-id are required parameters!')
 
     if not is_admin(user_info, log):
         return create_response(success=0, err='Unauthorized', stat=401)
 
     curse = db_obj.get_dict_curse()
 
-    # check mask with design id exists
-    exists, err, stat_code = gen_utils.chk_exists(curse, 'chk_mask', mask_id)
-    if not exists:
-        return create_response(success=0, err=err, stat=stat_code)
+    # check the input is valid
+    try:
+        mask_id = int(mask_id)
+    except Exception as err:
+        log.warning(f'mask-id is not a valid integer, error: {err}')
+        return create_response(success=0, stat=422,
+                               err=f'mask-id is not a valid integer!')
+
+    # check mask table has an entry for mask id
+    if not do_query('chk_barcode_blue', curse, (mask_id, blue_id,)):
+        return False, 'Database Error!',  503
+
+    if not gen_utils.get_dict_result(curse):
+        return create_response(
+            success=0, stat=422, err=f'No entry in database with barcode='
+                                     f'{mask_id} and bluid={blue_id}!'
+        )
+
+    if not do_query('mask_table_bluid', curse, (blue_id,)):
+        return create_response(success=0, err='Database Error!', stat=503)
+
+    results = gen_utils.get_dict_result(curse)
+    number_barcodes = len(results)
 
     # delete mask
-    if not do_query('mask_delete', curse, (mask_id,)):
+    if not do_query('mask_table_delete', curse, (mask_id,)):
         return create_response(success=0, err='Database Error!', stat=503)
 
     # check that it was successful
@@ -1145,11 +1141,35 @@ def delete_mask():
     if not committed:
         return create_response(success=0, err=msg, stat=503)
 
+    # mark the mask as UNMILLED if not ARCHIVED
+    if number_barcodes <= 1:
+        if not do_query('blueprint_status', curse, (blue_id,)):
+            return create_response(success=0, err='Database Error!', stat=503)
+
+        results = gen_utils.get_dict_result(curse)
+        try:
+            blue_status = results[0]['status']
+            date_use = results[0]['date_use']
+        except Exception as err:
+            log.warning(f'no blueprint status found: {err}')
+            return create_response(success=0, err='Database Error!', stat=503)
+
+        if blue_status != consts.ARCHIVED:
+            # update the mask status
+            if date_use < datetime.now():
+                success = utils.maskStatus(db_obj, blue_id, consts.ARCHIVED)
+            else:
+                success = utils.maskStatus(db_obj, blue_id, consts.UNMILLED)
+
+            if not success:
+                return create_response(success=0, err='Database Error!', stat=503)
+
     return create_response(data={'msg': f'mask: {mask_id} deleted.'})
 
 
 @app.route("/slitmask/set-perpetual-mask-use-date")
-def set_perpetual_mask_use_date():
+@init_required
+def set_perpetual_mask_use_date(db_obj, user_info):
     """
     mark this mask design as permanent
     mark this mask design as a "standard"
@@ -1162,11 +1182,6 @@ def set_perpetual_mask_use_date():
 
     :return: <str> message if the mask's date was extended successfully or not
     """
-    # initialize db,  get user information,  redirect if not logged in.
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     design_id = request.args.get('design-id')
     if not design_id:
         return create_response(success=0, stat=401,
@@ -1179,8 +1194,8 @@ def set_perpetual_mask_use_date():
     curse = db_obj.get_dict_curse()
 
     # check mask with design id exists
-    exists, err, stat_code = gen_utils.chk_mask_exists(curse, design_id)
-    if not exists:
+    stat_code, err = gen_utils.chk_mask_exists(curse, design_id)
+    if stat_code:
         return create_response(success=0, err=err, stat=stat_code)
 
     # update the mask use date
@@ -1191,7 +1206,7 @@ def set_perpetual_mask_use_date():
     if not committed:
         return create_response(success=0, err=msg, stat=503)
 
-    # if any of those blueprints has status FORGOTTEN then reset to MILLED
+    # if any of those blueprints has status FORGOTTEN then reset to READY
     if not do_query('forgotten_status', curse, (design_id, )):
         return create_response(success=0, err='Database Error!', stat=503)
 
@@ -1205,7 +1220,8 @@ def set_perpetual_mask_use_date():
 # -- long functions
 
 @app.route("/slitmask/mask-detail")
-def get_mask_detail():
+@init_required
+def get_mask_detail(db_obj, user_info):
     """
     get all database records related to this DesId.
 
@@ -1216,10 +1232,6 @@ def get_mask_detail():
 
     :return: arrays JSON objects with of mask details
     """
-    db_obj, user_info = init_api()
-    if not user_info:
-        return redirect(LOGIN_URL)
-
     design_id = request.args.get('design-id')
     if not design_id:
         return create_response(success=0, stat=422,
@@ -1227,7 +1239,7 @@ def get_mask_detail():
 
     curse = db_obj.get_dict_curse()
 
-    if user_info.user_type not in (MASK_ADMIN, MASK_USER):
+    if user_info.user_type not in (consts.MASK_ADMIN, consts.MASK_USER):
         return create_response(success=0, stat=401,
                                err=f'{user_info.user_type} is Unauthorized!')
 
@@ -1235,6 +1247,11 @@ def get_mask_detail():
         msg = f'Unauthorized for keck_id: {user_info.keck_id} as ' \
               f'{user_info.user_type}) to view mask with Design ID: {design_id}'
         return create_response(success=0, err=msg, stat=403)
+
+    # check the mask
+    stat_code, err = gen_utils.chk_mask_exists(curse, design_id)
+    if stat_code:
+        return create_response(success=0, err=err, stat=stat_code)
 
     if not do_query('design', curse, (design_id, )):
         return create_response(success=0, err='Database Error!', stat=503)
@@ -1303,6 +1320,14 @@ def get_mask_detail():
         return create_response(success=0, err='Database Error!', stat=503)
 
     results = gen_utils.get_dict_result(curse)
+
+    # parse the status int to str
+    try:
+        status = results[0]['status']
+        results[0]['status'] = consts.STATUS_STR[status]
+    except Exception as err:
+        log.warning(f'error setting status for mask-details: {err}')
+
     result_list += [['Blueprint', results]]
 
     for maskblurow in results:
@@ -1356,7 +1381,7 @@ def barcode_to_starlist():
 
     :return: <JSON array> one starlist line per array element
     """
-    db_obj, user_info = init_api(keck_id=MASK_ADMIN)
+    db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
 
     barcode_list_param = request.args.get('barcode-list')
     if not barcode_list_param:
@@ -1419,7 +1444,7 @@ def guiname_to_starlist():
 
     :return: <JSON array> one starlist line per array element
     """
-    db_obj, user_info = init_api(keck_id=MASK_ADMIN)
+    db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
 
     guiname_list_param = request.args.get('guiname-list')
     if not guiname_list_param:
@@ -1485,7 +1510,7 @@ def sias_slitmask_info():
     :return: <JSON>
     """
     # bypass logging in as observer using MASKADMIN
-    db_obj, user_info = init_api(keck_id=MASK_ADMIN)
+    db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
 
     q_type = request.args.get('type')
     date1 = request.args.get('date1')

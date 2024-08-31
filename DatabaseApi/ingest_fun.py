@@ -1,6 +1,8 @@
 #! /usr/bin/python3
 
 # tools for access to DEIMOS multi-HDU FITS slitmask description file (MDF)
+import os
+import subprocess
 
 from astropy.io import fits
 
@@ -108,7 +110,7 @@ class IngestFun:
         validate.telescope()
         validate.date_pnt()
         # TODO temporary to test old masks
-        validate.date_use()
+        # validate.date_use()
         validate.design_slits()
         validate.blue_slits()
         validate.slit_object_map()
@@ -387,8 +389,7 @@ class IngestFun:
 
         return success, err_report
 
-
-    def convertLRIStoMDF(file3path, email, date_use):
+    def convertLRIStoMDF(self, file3path, email, date_use):
         """
         given a .file3 file created by the LRIS mask design software
         convert that to a mask design FITS
@@ -415,7 +416,7 @@ class IngestFun:
         outputs:
         MDFfile     path to DEIMOS-like mask design FITS tables (MDF) file
         """
-
+        log = log_fun.get_log()
         # convention is that we name the output MDF file like the input .file3
         file3 = os.path.basename(file3path)
         mdfname = None
@@ -437,17 +438,16 @@ class IngestFun:
         lsc2df = "@RELDIR@/bin/maskpgtcl/lsc2df"
 
         # we are going to use subprocess.call even if we are python3
-        status = subprocess.call([lsc2df,
-        "%s %s %s %s" % (file3path, email, mdfname, date_use)],
-        stdout=STDOUT, stderr=STDERR)
+        status = subprocess.call([lsc2df, f"{file3path} {email} {mdfname} {date_use}"],
+                                 stdout=STDOUT, stderr=STDERR)
+
         # make sure output gets flushed
         STDOUT.close()
         STDERR.close()
 
         if status != 0:
-            tclog.logger.error(
-            "%s failed: see stdout %s and stderr %s"
-            % (lsc2df, lsc2dfOut, lsc2dferr) )
+            log.error(f"{lsc2df} failed: see stdout {lsc2dfOut} and "
+                      f"stderr {lsc2dferr}")
 
             # return empty string as the path of the output file
             return ""
