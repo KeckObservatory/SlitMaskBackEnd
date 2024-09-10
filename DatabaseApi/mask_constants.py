@@ -16,7 +16,7 @@ ARCHIVED = 9
 # The MaskBlu.status to string
 STATUS_STR = defaultdict(
     lambda: 'UNDEFINED',
-    {0: 'UNMILLED', 1: 'FLOPPY', 2: 'READY', 9: 'ARCHIVED'}
+    {0: 'UNMILLED', 1: 'UNMILLED', 2: 'READY', 9: 'ARCHIVED'}
 )
 
 # original code on Solaris had 32-bit time_t that expires 2038-01-19
