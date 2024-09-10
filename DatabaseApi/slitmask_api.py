@@ -29,6 +29,7 @@ APP_PATH = path.abspath(path.dirname(__file__))
 TEMPLATE_PATH = path.join(APP_PATH, "Templates/")
 app = Flask(__name__, template_folder=TEMPLATE_PATH)
 
+
 @app.after_request
 def log_response_code(response):
     """
@@ -42,7 +43,19 @@ def log_response_code(response):
     return response
 
 
+@app.before_request
+def log_request_info():
+    """
+    Log the request and parameters.
+    """
+    request_args = request.args.to_dict()
+    log.info(f"{request.path}: {request_args} : {request.remote_addr}")
+
+
 def init_required(fun):
+    """
+    Initialize the API and check the user is logged in.
+    """
     @wraps(fun)
     def decorated_function(*args, **kwargs):
         db_obj, user_info = init_api()
@@ -101,12 +114,21 @@ class UserInfo:
         self.user_str = self.user_type_to_str()
 
     def user_type_to_str(self):
+        """
+        Return the user type as a string to be used with human readable format.
+        """
         try:
             return consts.USER_TYPE_STR[self.user_type]
         except IndexError:
             return 'undefined'
 
     def set_mask_observer_id(self, db_obj):
+        """
+        Set the mask observer id that will correspond to the MaskDesign.despid
+        and the MaskBlu.blupid. The mask observer id (obid) can be either a
+        legacy UCO Lick slitmask ID (<1000) or a Keck ID (>1000).  The legacy
+        ids are only for users that already had masks prior to the 2024 upgrade.
+        """
         if not self.keck_id:
             return None
 
@@ -244,10 +266,11 @@ def upload_mdf():
 #    Mask Information / retrieval functions
 ################################################################################
 
-# TODO do not expose this route
 @app.route("/slitmask/mill-queue")
 def get_mill_queue():
     """
+    Intended as an internal-only route.
+
     find all masks which should be milled but have not been milled
     corresponds to Tcl maskQ.cgi.sin.  Allow any user access.
 
@@ -268,11 +291,16 @@ def get_overdue():
     :return: <json> list of mask objects which want to be milled
     """
     ordered_results = masks_need_mill()
-    date_use_overdue = datetime.now() + timedelta(days=consts.OVERDUE)
+    overdue_date = datetime.now() + timedelta(days=consts.OVERDUE)
 
     overdue = []
     for result in ordered_results:
-        if result['Use-Date'] <= date_use_overdue:
+        if 'Use-Date' not in result:
+            continue
+
+        # make datetime for an accurate comparison
+        use_date = datetime.strptime(result['Use-Date'], '%Y-%m-%d')
+        if use_date <= overdue_date:
             overdue.append(result)
 
     return create_response(data=overdue)
@@ -358,6 +386,10 @@ def get_user_mask_inventory(db_obj, user_info):
 
 
 def get_user_inventory_fun(db_obj, user_info):
+    """
+    Find all the user inventory,  used by both the All User Inventory and the
+    filtered Available User Inventory options.
+    """
     curse = db_obj.get_dict_curse()
     obid_col = gen_utils.get_obid_column(curse, OBS_INFO)
     if not obid_col:
@@ -371,11 +403,6 @@ def get_user_inventory_fun(db_obj, user_info):
     results = gen_utils.get_dict_result(curse)
 
     return True, results
-
-
-@app.route("/slitmask/user-file-upload-history")
-def get_user_file_upload_history():
-    return create_response(err='NOT IMPLEMENTED', data={})
 
 
 @app.route("/slitmask/mask-plot")
@@ -513,6 +540,8 @@ def extend_mask_use_date(db_obj, user_info):
 @app.route("/slitmask/archive-mask-script")
 def archive_mask_script():
     """
+    Intended as an internal-only route.
+
     Used by the HIT LIST purge email to mark masks with use date > 6 months old
     as ARCHIVED.
     """
@@ -710,11 +739,12 @@ def mill_files(db_obj, user_info):
                      as_attachment=True)
 
 
-# TODO needs to be updated to email PI as well -- when ready!
 @app.route("/slitmask/remill-mask")
 @init_required
 def remill_mask(db_obj, user_info):
     """
+    Intended as an internal-only route.
+
     api2_3.py - remillBlueprint( db, bluid, newdate )
 
     attempt to mark a mask blueprint as needs to be milled (again)
@@ -844,10 +874,11 @@ def admin_search(db_obj, user_info):
     return create_response(success=1, data=ordered_results)
 
 
-# TODO do not expose this route
 @app.route("/slitmask/recently-scanned-barcodes")
 def get_recently_scanned_barcodes():
     """
+    Intended as an internal-only route.
+
     report recently scanned barcodes
 
     api2_3.py - getRecentlyScannedBarcodes( db, sortby )
@@ -885,10 +916,11 @@ def get_recently_scanned_barcodes():
     return create_response(data=gen_utils.order_scanned_barcodes(results))
 
 
-# TODO do not expose this route
 @app.route("/slitmask/recently-scanned-emails")
 def get_users_recently_milled():
     """
+    Intended as an internal-only route.
+
     get recently scanned barcodes for sending email notifications.
 
     The results are scanned <= 1 day ago.
@@ -1027,10 +1059,11 @@ def get_all_active_masks_file(db_obj, user_info ):
                      as_attachment=True)
 
 
-# TODO this should not be exposed
 @app.route("/slitmask/all-active-masks-script")
 def get_all_valid_masks_script():
     """
+    Intended as an internal-only route.
+
     Used by the mask pruner script to get all the masks.
 
     :return: <json> all valid masks in JSON format
@@ -1373,74 +1406,33 @@ def get_mask_detail(db_obj, user_info):
 ################################################################################
 #    Masks in the instruments
 ################################################################################
-# TODO do not expose this route
-@app.route("/slitmask/barcode-starlist", methods=['GET'])
-def barcode_to_starlist():
-    """
-    input an array of barcodes and return a starlist with one entry per barcode.
-
-    :return: <JSON array> one starlist line per array element
-    """
-    db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
-
-    barcode_list_param = request.args.get('barcode-list')
-    if not barcode_list_param:
-        return create_response(success=0, stat=422,
-                               err=f'barcode-list is a required parameter')
-
-    # parse the JSON
-    try:
-        barcode_list = json.loads(barcode_list_param)
-        barcode_list = [int(barcode) for barcode in barcode_list]
-    except (json.JSONDecodeError, ValueError):
-        return create_response(success=0, stat=400, err=f'Invalid JSON,  barcode-list.')
-
-    curse = db_obj.get_dict_curse()
-
-    starlist_info = []
-    for barcode in barcode_list:
-        if not do_query('barcode_to_pointing', curse, (barcode,)):
-            return create_response(success=0, err='Database Error!', stat=503)
-
-        results = gen_utils.get_dict_result(curse)
-        if len(results) < 1 or 'ra_pnt' not in results[0] or 'dec_pnt' not in results[0]:
-            print(f"no results found for barcode: {barcode}")
-            continue
-
-        dec_deg = results[0]['dec_pnt']
-        ra_deg = results[0]['ra_pnt']
-        try:
-            c = SkyCoord(ra=ra_deg * u.degree, dec=dec_deg * u.degree, frame='icrs')
-            c.to_string('hmsdms')
-            ra_dec = re.sub(r'[hmds]', ':', c.to_string('hmsdms')).split(' ')
-            results[0]['ra_pnt'] = ra_dec[0]
-            results[0]['dec_pnt'] = ra_dec[1]
-            starlist_info.append(results[0])
-        except Exception as err:
-            print(f"Error: {err}")
-
-    date_str = datetime.utcnow().strftime('%Y%m%d')
-    starlist_rows = []
-
-    starlist_rows.append(f"#starlist generated by masks currently ({date_str}) in LRIS")
-    starlist_rows.append(f"#Slitmask name   HH MM SS.SSS  DD mm ss.sss EPOCH   Rot-Mode   Position Angle ")
-
-    for obj in starlist_info:
-        line = (f"{obj['guiname']: <16} {obj['ra_pnt'].replace(':', ' ')} "
-                f"{obj['dec_pnt'].replace(':', ' ')} {obj['equinpnt']} "
-                f"rotmode=pa rotdest={obj['pa_pnt']}\n")
-        starlist_rows.append(line)
-
-    return create_response(data=starlist_rows)
-
-
-# TODO do not expose this route
 @app.route("/slitmask/guiname-starlist", methods=['GET'])
 def guiname_to_starlist():
     """
-    input an array of barcodes and return a starlist with one entry per barcode.
+    Intended as an internal-only route.
 
-    guiname-list=["long_1.0","long_1.5","f2404_2","f2404_3","f2404_4","direct","long_0.7","RMJ1327B","GOH_LRIS","long_8.7"]
+    Requires HTTP (not capable of using HTTPS while running on the instrument
+    account),  so goes directly to where the API is running
+    (vm-slitmaskdb01.keck.hawaii.edu:16815) instead of through the NGINX proxies.
+
+    This is used by LRIS inst accounts to create a starlist from the masks
+    in the instrument.  The script is run from the background menu in LRIS
+    instrument accounts.
+        LRIS Utilities -> Generate Mask Starlist
+
+    Creates starlist in (inst account logged into lris<N>):
+        ie: /home/manuka/lris8/starlist.20240905
+
+    The new shell/perl scripts:
+        /kroot/src/kss/lris/lris_sh/scripts/inst/maskstarlist_psql
+
+    replaces:
+        /kroot/src/kss/lris/lris_sh/scripts/inst/maskstarlist
+
+    The symlink is updated to point to the new script:
+        /kroot/rel/default/bin/maskstarlist
+
+    input an array of barcodes and return a starlist with one entry per barcode.
 
     :return: <JSON array> one starlist line per array element
     """
@@ -1502,10 +1494,21 @@ def guiname_to_starlist():
     return starlist_fmt
 
 
-# TODO do not expose this route
 @app.route('/slitmask/sias', methods=["GET"])
 def sias_slitmask_info():
     """
+    Intended as an internal-only route.
+
+    The information used be SIAS and other keck internal pages.
+
+    https://www2.keck.hawaii.edu/inst/siastng/release/web/ObsConf/runScreenEh.php
+    http://www.keck.hawaii.edu/inst/sias/rel/release/daemons/reminder/slitMaskLookAhead.php
+
+    A php gateway exists on www that points to this route.
+
+    symlink:
+    /webFiles/www/public/inst/sias/rel/5.3.1/web/slitmask/slitmask.php ->
+    /webFiles/www/public/inst/sias/rel/5.3.1/web/slitmask/slitmask-upgrade.php
 
     :return: <JSON>
     """
@@ -1567,14 +1570,16 @@ if __name__ == '__main__':
     DBMASKOUT_DIR = gen_utils.get_cfg(config, 'tcl_locations', 'dbmaskout_path')
     NCMILL_DIR = gen_utils.get_cfg(config, 'tcl_locations', 'ncmill_path')
 
-    OBS_INFO = {}
-    OBS_INFO['info_url'] = gen_utils.get_cfg(config, 'keck_observer', 'info_url')
-    OBS_INFO['cookie_url'] = gen_utils.get_cfg(config, 'keck_observer', 'cookie_url')
+    OBS_INFO = {
+        'info_url': gen_utils.get_cfg(config, 'keck_observer', 'info_url'),
+        'cookie_url': gen_utils.get_cfg(config, 'keck_observer', 'cookie_url')
+    }
 
-    EMAIL_INFO = {}
-    EMAIL_INFO['from'] = gen_utils.get_cfg(config, 'email_info', 'from')
-    EMAIL_INFO['admin'] = gen_utils.get_cfg(config, 'email_info', 'admin')
-    EMAIL_INFO['server'] = gen_utils.get_cfg(config, 'email_info', 'server')
+    EMAIL_INFO = {
+        'from': gen_utils.get_cfg(config, 'email_info', 'from'),
+        'admin': gen_utils.get_cfg(config, 'email_info', 'admin'),
+        'server': gen_utils.get_cfg(config, 'email_info', 'server')
+    }
 
     GCODE_DIR = gen_utils.get_cfg(config, 'tcl_params', 'gcode_dir')
 
@@ -1582,8 +1587,7 @@ if __name__ == '__main__':
 
     api_port = gen_utils.get_cfg(config, 'api_parameters', 'port')
 
-    # restrict to 100 MB
+    # restrict file uploads to 100 MB otherwise a 413 Too Large will be returned.
     app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
     app.run(host='0.0.0.0', port=api_port)
-
 

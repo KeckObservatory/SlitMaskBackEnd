@@ -392,11 +392,13 @@ auxiliary_queries = {
     """
 }
 
-results_str = "d.stamp, d.desid, d.desname, d.desdate, projname, ra_pnt, " \
-              "dec_pnt, radepnt, o.keckid, o.firstnm, o.lastnm, o.email, " \
-              "o.institution, b.status, b.guiname, " \
+# the results to return for the admin search table
+results_str = "d.stamp, d.desid, d.desname, d.desdate, d.instrume, projname, " \
+              "ra_pnt, dec_pnt, radepnt, o.keckid, o.firstnm, o.lastnm, " \
+              "o.email, o.institution, b.status, b.guiname, " \
               "COALESCE(b.millseq, m.MillSeq) AS millseq"
 
+# the admin search table queries,  one query per search option
 admin_search_queries = {
     "search_email": f"SELECT {results_str} FROM MaskDesign d "
                     "JOIN Observers o ON o.ObId = d.DesPId "
@@ -530,8 +532,12 @@ admin_search_queries = {
     "search_other": f"SELECT {results_str} FROM MaskDesign d "
                     "JOIN Observers o ON o.ObId = d.DesPId "
                     "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "        
-                    "LEFT JOIN Mask m ON m.BluId = b.BluId "
+                    "LEFT JOIN Mask m ON m.BluId = b.BluId ",
 
+    "search_inst": f"SELECT {results_str} FROM MaskDesign d "
+                   "JOIN Observers o ON o.ObId = d.DesPId "
+                   "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
+                   "LEFT JOIN Mask m ON m.BluId = b.BluId "
 
 }
 

@@ -127,12 +127,6 @@ def admin_search(options, db, obs_info):
     """
     log = log_fun.get_log()
 
-    results_str = "d.stamp, d.desid, d.desname, d.desdate, projname, ra_pnt, " \
-                  "dec_pnt, radepnt, o.keckid, o.firstnm, o.lastnm, o.email, " \
-                  "o.institution, b.status, b.guiname, " \
-                  "COALESCE(b.millseq, m.MillSeq) AS millseq"
-
-
     # we will construct a SQL query
     # query_args will become the arguments for that SQL query
     query_args = []
@@ -141,20 +135,19 @@ def admin_search(options, db, obs_info):
     if 'inst' in options:
         inst_query = ""
         # if "DEIMOS" == options['inst']:
-        if re.search(r'^DEIMOS.+', options['inst']):
-            inst_query = "d.INSTRUME = %s and"
+        # re.search(r'^(LRIS|DEIMOS).*', 'lris', re.IGNORECASE)
+        if re.search(r'^(DEIMOS).*', options['inst'], re.IGNORECASE):
+            inst_query = "d.INSTRUME = %s"
             query_args.append("DEIMOS")
-        elif re.search(r'^LRIS.+', options['inst']):
-            inst_query = "d.INSTRUME ilike %s and"
+        elif re.search(r'^(LRIS).*', options['inst'], re.IGNORECASE):
+            inst_query = "d.INSTRUME ilike %s"
             query_args.append("LRIS%")
         else:
             # we take anything else as matching any MaskDesign.INSTRUME
             # and we do not complain about unrecognized values
             pass
 
-        search_q = (f"SELECT {results_str} FROM MaskDesign d "
-                               f"JOIN Observers o ON o.ObId = d.DesPId "
-                               f"LEFT JOIN MaskBlu b ON b.DesId = d.DesId ")
+        search_q = get_query('search_inst')
         if inst_query:
             search_q += f"WHERE {inst_query} "
 

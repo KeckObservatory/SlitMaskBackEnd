@@ -1,3 +1,4 @@
+
 from collections import defaultdict
 
 MASK_LOGIN = 0
@@ -12,6 +13,7 @@ FLOPPY = 1
 READY = 2
 ARCHIVED = 9
 
+# The MaskBlu.status to string
 STATUS_STR = defaultdict(
     lambda: 'UNDEFINED',
     {0: 'UNMILLED', 1: 'FLOPPY', 2: 'READY', 9: 'ARCHIVED'}

@@ -22,6 +22,9 @@ class WsPgConn(PgConn):
             self.user_type = self.set_user_type(keck_id)
 
     def db_connect(self):
+        """
+        Connec to the database.
+        """
         db_pw = wspgcfg.pwdict[USER_TYPE_STR[self.user_type]]
         host = wspgcfg.host
         port = wspgcfg.port
@@ -31,9 +34,15 @@ class WsPgConn(PgConn):
         return True
 
     def get_user_type(self):
+        """
+        Access to the user permission level,  'type'
+        """
         return self.user_type
 
     def set_user_type(self, keck_id):
+        """
+        Define the user permission level.
+        """
         user_type = MASK_USER
         db_pw = wspgcfg.pwdict[USER_TYPE_STR[user_type]]
         host = wspgcfg.host
@@ -61,9 +70,10 @@ class WsPgConn(PgConn):
         if count < 1:
             return user_type
         elif count > 1:
-            # we require that email be unique in database table observers
+            # allow the handfull of observers with duplicate emails in legacy
+            # database to login as MASK_USER
             self.log.error(f"keck_id {keck_id} returned more than one record")
-            return None
+            return user_type
 
         result = self.cursor.fetchone()
         self.disconnect()
@@ -72,7 +82,11 @@ class WsPgConn(PgConn):
 
         return user_type
 
-    def determine_user_type(self, result):
+    @staticmethod
+    def determine_user_type(result):
+        """
+        Determine the type of permission available to the user.
+        """
         MASKADMIN = 1 << 0
         if result['privbits'] & MASKADMIN:
             return MASK_ADMIN

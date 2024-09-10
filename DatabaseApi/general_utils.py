@@ -525,7 +525,8 @@ def order_search_results(results):
     new_keys_map = [
         ('status', 'Status'), ('desdate', 'Design-Date'), ('desid', 'Design-ID'),
         ('desname', 'Design-Name'), ('guiname', 'GUI-Name'),
-        ('projname', 'Project-Name'), ('ra_pnt', 'RA'), ('dec_pnt', 'Declination'),
+        ('projname', 'Project-Name'), ('ra_pnt', 'RA'), ('instrume', 'Instrument'),
+        ('dec_pnt', 'Declination'),
         ('radepnt', 'System'), ('keckid', 'Keck-ID'), ('firstnm', 'First-Name'),
         ('lastnm', 'Last-Name'), ('email', 'Email'), ('institution', 'Institution'),
         ('stamp', 'Submitted'), ('millseq', 'Seq'),
