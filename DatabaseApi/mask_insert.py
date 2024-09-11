@@ -29,6 +29,9 @@ class MaskInsert:
         self.err_report.append(msg)
 
     def mask_design(self, row, query):
+        if row['RADEPNT'] == '':
+            row['RADEPNT'] = 'FK5'
+
         try:
             params = (
                 # design_id (default)
