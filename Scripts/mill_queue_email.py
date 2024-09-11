@@ -75,7 +75,7 @@ if __name__ == '__main__':
     mail_subject = f"Current Masks in Slitmask Queue {today.strftime('%Y-%m-%d')}"
 
     mail_server = utils.get_cfg(cfg, 'email', 'server')
-    # mail_to = utils.get_cfg(cfg, 'email', 'info')
+    mail_to = utils.get_cfg(cfg, 'email', 'info')
     mail_from = utils.get_cfg(cfg, 'email', 'from')
 
     api_url = utils.get_cfg(cfg, 'slitmask_api', 'api_url')
@@ -94,11 +94,7 @@ if __name__ == '__main__':
 
     html_table = utils.json_to_html_table(json_output)
 
-    #TODO remove when ready
-    mail_to = 'lfuhrman@keck.hawaii.edu'
-
     mail_msg = create_work_table(json_output)
-    # mail_msg = utils.json_to_html_table(work_json)
     mail_msg += html_table
 
     log.info(f'Sending Mill Queue Mask Notification Email to: {mail_to}.')

@@ -76,8 +76,6 @@ if __name__ == '__main__':
 
         log.info(f"Sending PI Newly Milled Mask Email to: {mail_to}")
 
-        # TODO remove when ready
-        mail_to = 'lfuhrman@keck.hawaii.edu'
         utils.send_email(mail_to, mail_from, mail_msg, mail_subject, mail_server)
 
 

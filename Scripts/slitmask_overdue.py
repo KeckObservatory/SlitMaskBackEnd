@@ -16,7 +16,7 @@ if __name__ == '__main__':
     mail_subject = f"Overdue Masks {today.strftime('%Y-%m-%d')}"
 
     mail_server = utils.get_cfg(cfg, 'email', 'server')
-    # mail_to = utils.get_cfg(cfg, 'email', 'alarm')
+    mail_to = utils.get_cfg(cfg, 'email', 'alarm')
     mail_from = utils.get_cfg(cfg, 'email', 'from')
 
     api_url = utils.get_cfg(cfg, 'slitmask_api', 'api_url')
@@ -46,9 +46,6 @@ if __name__ == '__main__':
         mask_info['TMinus (days)'] = (use_date - today).days
 
     html_table = utils.json_to_html_table(json_output)
-
-    # TODO remove when ready
-    mail_to = 'lfuhrman@keck.hawaii.edu'
 
     mail_msg = html_table
 
