@@ -109,8 +109,7 @@ class IngestFun:
         validate.instrument()
         validate.telescope()
         validate.date_pnt()
-        # TODO temporary to test old masks
-        # validate.date_use()
+        validate.date_use()
         validate.design_slits()
         validate.blue_slits()
         validate.slit_object_map()

@@ -819,8 +819,8 @@ def remill_mask(db_obj, user_info):
           f'marked to be remilled,  new use date={new_use_date}' \
           f'\n\nThe following email addresses have been notified: {email_list}'
 
-    # TODO update to use email_list once ready (will email PIs)
-    EMAIL_INFO['to_list'] = [EMAIL_INFO['admin']]
+    # Email the PI
+    EMAIL_INFO['to_list'] = email_list
     utils.send_email(msg, EMAIL_INFO, subject)
 
     return create_response(data={'msg': msg})
