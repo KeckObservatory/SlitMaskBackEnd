@@ -61,7 +61,7 @@ def init_required(fun):
         db_obj, user_info = init_api()
 
         if not user_info:
-            return redirect(LOGIN_URL)
+            return create_response(success=0, err='The user is not logged in.', stat=401)
 
         return fun(db_obj=db_obj, user_info=user_info, *args, **kwargs)
     return decorated_function
@@ -209,7 +209,7 @@ def upload_mdf():
 
     db_obj, user_info = init_api()
     if not db_obj:
-        return redirect(LOGIN_URL)
+        return create_response(success=0, err='The user is not logged in.', stat=401)
 
     in_fun = IngestFun(user_info, db_obj, OBS_INFO)
     mask_path = f"{RAW_MDF_DIR}/{mdf_file.filename}"
@@ -514,7 +514,7 @@ def extend_mask_use_date(db_obj, user_info):
     curse = db_obj.get_dict_curse()
 
     if not user_info:
-        return redirect(LOGIN_URL)
+        return create_response(success=0, err='The user is not logged in.', stat=401)
 
     if not utils.my_design(user_info, curse, design_id):
         return create_response(success=0, err='Unauthorized', stat=401)
