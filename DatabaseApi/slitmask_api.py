@@ -1546,6 +1546,8 @@ def sias_slitmask_info():
         for key in row.keys():
             if 'date' in key:
                 entry[key] = row[key].strftime('%b %d %Y %M:%S')
+            elif 'guiname' in key:
+                entry[key] = row[key].strip()
             else:
                 entry[key] = row[key]
         data.append(entry)
