@@ -3,7 +3,6 @@ from os import path
 
 from datetime import datetime
 import email_utils as utils
-import configparser
 
 CONFIG_FILE = "slitmask_emails.ini"
 APP_PATH = path.abspath(path.dirname(__file__))
@@ -35,11 +34,19 @@ if __name__ == '__main__':
         log.error(f'No JSON returned API might be down. ERROR: {e}')
         sys.exit()
 
-    # remove the time stamp field,  add the number of days until mask is used
+    today_str = datetime.today().strftime('%Y-%m-%d')
+
+    cln_data = []
+    # remove the time stamp field, only show results for Use date later than today
     for mask_info in json_output['data']:
         if 'millid' in mask_info:
             del mask_info['millid']
+        if 'Use_Date' in mask_info and mask_info['Use_Date'] < today_str:
+            continue
 
+        cln_data.append(mask_info)
+
+    json_output['data'] = cln_data
     html_table = utils.json_to_html_table(json_output)
 
     mail_msg = html_table
