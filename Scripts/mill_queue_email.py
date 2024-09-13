@@ -15,7 +15,7 @@ def create_work_table(json_data):
     result_by_date = defaultdict(lambda: {"num_masks": 0, "total_slits": 0})
 
     for entry in json_data["data"]:
-        use_date = datetime.strptime(entry["Use-Date"], "%Y-%m-%dT%H:%M:%S").date()
+        use_date = datetime.strptime(entry["Use-Date"], "%Y-%m-%d").date()
         result_by_date[use_date]["num_masks"] += 1
         result_by_date[use_date]["total_slits"] += entry["Number-Slits"]
 
