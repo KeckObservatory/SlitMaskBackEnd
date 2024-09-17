@@ -38,7 +38,7 @@ if __name__ == '__main__':
 
     # remove the time stamp field,  add the number of days until mask is used
     for mask_info in json_output['data']:
-        use_date = datetime.strptime(mask_info['Use-Date'], '%Y-%m-%dT%H:%M:%S').date()
+        use_date = datetime.strptime(mask_info['Use-Date'], '%Y-%m-%d').date()
 
         if 'Time-Stamp' in mask_info:
             del mask_info['Time-Stamp']
