@@ -30,6 +30,9 @@ RECENT_NDAYS = 14
 # the number of days before a date-use that a mask design must be submitted
 OVERDUE = 35
 
+# the number of days before a date-use that a mask design must be submitted
+MILL_OVERDUE = 7
+
 # early in DEIMOS we decided to mill all masks with 0.015 inch tool
 # so we hard code the mill tool diameter here
 # in the same fashion as Tcl code CGI/makeMill.sin
