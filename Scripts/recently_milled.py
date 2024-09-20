@@ -17,12 +17,13 @@ if __name__ == '__main__':
 
     mail_server = utils.get_cfg(cfg, 'email', 'server')
     mail_to = utils.get_cfg(cfg, 'email', 'info')
+    mail_to = 'lfuhrman@keck.hawaii.edu'
     mail_from = utils.get_cfg(cfg, 'email', 'from')
 
     api_url = utils.get_cfg(cfg, 'slitmask_api', 'api_url')
     recently_scanned = utils.get_cfg(cfg, 'slitmask_api', 'recent_scans')
 
-    full_url = f"{api_url}/{recently_scanned}"
+    full_url = f"{api_url}/{recently_scanned}?number-days=1"
 
     json_output = utils.query_db_api(full_url)
 
