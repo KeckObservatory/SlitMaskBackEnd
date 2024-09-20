@@ -17,7 +17,6 @@ if __name__ == '__main__':
 
     mail_server = utils.get_cfg(cfg, 'email', 'server')
     mail_to = utils.get_cfg(cfg, 'email', 'info')
-    mail_to = 'lfuhrman@keck.hawaii.edu'
     mail_from = utils.get_cfg(cfg, 'email', 'from')
 
     api_url = utils.get_cfg(cfg, 'slitmask_api', 'api_url')
