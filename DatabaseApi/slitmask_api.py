@@ -916,6 +916,39 @@ def get_recently_scanned_barcodes():
     return create_response(data=gen_utils.order_scanned_barcodes(results))
 
 
+@app.route("/slitmask/recently-scanned-emails")
+def get_users_recently_milled():
+    """
+    Intended as an internal-only route.
+    get recently scanned barcodes for sending email notifications.
+    The results are scanned <= 1 day ago.
+    :return: <JSON object> where data = array of recently scanned barcode info.
+    """
+    # initialize db,  get user information,  redirect if not logged in.
+    db_obj, user_info = init_api()
+    if not user_info:
+        db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
+    elif not is_admin(user_info, log):
+        return create_response(success=0, err='Unauthorized', stat=401)
+    # recent_date = gen_utils.get_recent_day(request)
+    recent_date = date.today() - timedelta(days=1)
+    query_name = 'recent_barcode_owner'
+    curse = db_obj.get_dict_curse()
+    if not do_query(query_name, curse, (recent_date, )):
+        return create_response(success=0, err='Database Error!', stat=503)
+    results = gen_utils.get_dict_result(curse)
+    if not results:
+        return create_response(data=results)
+    for result in results:
+        try:
+            observer_id = result['despid']
+        except Exception as err:
+            log.warning(f'Design PID not found in results, error: {err}')
+            continue
+        result['obs'] = gen_utils.get_obs_by_maskid(curse, observer_id, OBS_INFO)
+    return create_response(data=gen_utils.group_by_email(results))
+
+
 @app.route("/slitmask/timeline-report")
 @init_required
 def get_timeline_report(db_obj, user_info):
