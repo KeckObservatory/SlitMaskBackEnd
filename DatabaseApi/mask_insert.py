@@ -301,6 +301,9 @@ class MaskInsert:
 
         # we require that MaskBlu.GUIname not have whitespace
         GUIname = self.hdul['MaskBlu'].data['guiname'][0]
+        self.log.info(f'Original guiname (surrouned by - to show '
+                      f'spaces): -{GUIname}-')
+
         okGUIname = GUIname.strip()
         okGUIwords = okGUIname.split()
         lenokGUI = len(okGUIwords)
@@ -348,15 +351,19 @@ class MaskInsert:
             if rowguiname not in guinamelist:
                 guinamelist.append(rowguiname)
             else:
-                self.log.warning(f"GUIname '{rowguiname}' has dups in db")
+                # this means that dups already exist in the database
+                self.log.error(f"GUIname '{rowguiname}' has dups in db")
         # end for resrow
-        for lastchar in string.ascii_letters + string.digits + "_:":
-            tryGUIname = shortGUIname + lastchar
-            if tryGUIname not in guinamelist:
-                self.log.warning(f"tryGUIname '{tryGUIname}' was not in guinamelist {guinamelist}")
-                newGUIname = tryGUIname
-                break  # end if tryGUIname
-        # end for lastchar
+
+        # skip the rename if no matches where found in the database
+        if guinamelist:
+            for lastchar in string.ascii_letters + string.digits + "_:":
+                tryGUIname = shortGUIname + lastchar
+                if tryGUIname not in guinamelist:
+                    self.log.warning(f"tryGUIname '{tryGUIname}' was not in guinamelist {guinamelist}")
+                    newGUIname = tryGUIname
+                    break  # end if tryGUIname
+            # end for lastchar
 
         # Note that we have a race here.
         # If another connection to the database inserts the newGUIname
@@ -365,8 +372,8 @@ class MaskInsert:
         # still need something like MaskKeeper to review the database for
         # duplicate GUIname and any other problems that might arise.
 
-        if (newGUIname != GUIname):
-            msg = f"we change MaskBlu.GUIname to {newGUIname}"
+        if newGUIname != GUIname:
+            msg = f"we change MaskBlu.GUIname to {newGUIname} from {GUIname}"
             self.log.warning(msg)
             GUIname = newGUIname
         # end if we changed GUIname

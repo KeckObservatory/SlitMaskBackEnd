@@ -1490,6 +1490,10 @@ def sias_slitmask_info():
     """
     Intended as an internal-only route.
 
+    Type1 = masks already milled
+    Type2 = masks not milled.  This considers mask without a barcode as
+            unmilled,  ie no entry in the Mask Table.
+
     The information used be SIAS and other keck internal pages.
 
     https://www2.keck.hawaii.edu/inst/siastng/release/web/ObsConf/runScreenEh.php
