@@ -33,14 +33,24 @@ ownership_queries = {
 
 
 retrieval_queries = {
+    # "mill": f"""
+    #     SELECT b.BluId, b.status, b.Date_Use, b.stamp, b.GUIname,
+    #            b.millseq, d.desid, d.desnslit, d.desname, d.instrume
+    #     FROM MaskBlu b, MaskDesign d
+    #     WHERE (b.status < {READY} OR b.status IS NULL)
+    #           AND d.DesId = b.DesId
+    #     ORDER BY b.Date_Use
+    #     """,
+
     "mill": f"""
         SELECT b.BluId, b.status, b.Date_Use, b.stamp, b.GUIname,
                b.millseq, d.desid, d.desnslit, d.desname, d.instrume
-        FROM MaskBlu b, MaskDesign d
-        WHERE (b.status < {READY} OR b.status IS NULL)
-              AND d.DesId = b.DesId
-        ORDER BY b.Date_Use
-        """,
+        FROM MaskBlu b
+        JOIN MaskDesign d ON d.DesId = b.DesId
+        WHERE (b.status < {READY} OR b.status IS NULL
+               OR (b.BluId NOT IN (SELECT BluId FROM Mask) AND b.status < 9))
+        ORDER BY b.Date_Use;
+    """,
 
     "standard_mask": f"""
         SELECT m.MaskId, b.GUIname, b.BluName, b.BluId, b.Date_Use,
@@ -482,7 +492,7 @@ admin_search_queries = {
                         "WHERE DesId = d.DesId AND BluId IN ( SELECT BluId "
                         "FROM Mask WHERE MillSeq = %s ))) ",
 
-   "search_barcode_eq2": f"SELECT {results_str}, b.status FROM MaskDesign d "
+    "search_barcode_eq2": f"SELECT {results_str}, b.status FROM MaskDesign d "
                     "JOIN Observers o ON o.ObId = d.DesPId "
                     "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
                     "LEFT JOIN Mask m ON m.BluId = b.BluId "
@@ -492,7 +502,7 @@ admin_search_queries = {
                     "       SELECT BluId FROM Mask "
                     "       WHERE MaskId BETWEEN %s AND %s)) ",
 
-   "search_barcode_gt2": f"SELECT {results_str}, b.status FROM MaskDesign d "
+    "search_barcode_gt2": f"SELECT {results_str}, b.status FROM MaskDesign d "
                         "JOIN Observers o ON o.ObId = d.DesPId "
                         "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
                         "LEFT JOIN Mask m ON m.BluId = b.BluId "
@@ -502,7 +512,7 @@ admin_search_queries = {
                         "       SELECT BluId FROM Mask "
                         "       WHERE MaskId IN (",
 
-   "search_barcode_eq1": f"SELECT {results_str}, b.status FROM MaskDesign d "
+    "search_barcode_eq1": f"SELECT {results_str}, b.status FROM MaskDesign d "
                         "JOIN Observers o on o.ObId = d.DesPID "
                         "LEFT JOIN MaskBlu b ON b.DesId = d.DesId "
                         "LEFT JOIN Mask m ON m.BluId = b.BluId "
