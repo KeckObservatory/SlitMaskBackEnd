@@ -33,22 +33,13 @@ ownership_queries = {
 
 
 retrieval_queries = {
-    # "mill": f"""
-    #     SELECT b.BluId, b.status, b.Date_Use, b.stamp, b.GUIname,
-    #            b.millseq, d.desid, d.desnslit, d.desname, d.instrume
-    #     FROM MaskBlu b, MaskDesign d
-    #     WHERE (b.status < {READY} OR b.status IS NULL)
-    #           AND d.DesId = b.DesId
-    #     ORDER BY b.Date_Use
-    #     """,
-
     "mill": f"""
         SELECT b.BluId, b.status, b.Date_Use, b.stamp, b.GUIname,
                b.millseq, d.desid, d.desnslit, d.desname, d.instrume
         FROM MaskBlu b
         JOIN MaskDesign d ON d.DesId = b.DesId
         WHERE (b.status < {READY} OR b.status IS NULL
-               OR (b.BluId NOT IN (SELECT BluId FROM Mask) AND b.status < 9))
+               OR (b.BluId NOT IN (SELECT BluId FROM Mask) AND b.status < {ARCHIVED}))
         ORDER BY b.Date_Use;
     """,
 
