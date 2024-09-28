@@ -508,7 +508,8 @@ admin_search_queries = {
                         "LEFT JOIN Mask m ON m.BluId = b.BluId "
                         "WHERE EXISTS ("
                         "  SELECT 1 FROM MaskBlu WHERE DesId = d.DesId AND BluId IN ("
-                        "    SELECT BluId FROM Mask WHERE MaskId = %s)) ",
+                        "    SELECT BluId FROM Mask WHERE MaskId = %s)) "
+                        " AND MaskId = 8840",
 
     "search_milled_no": f"SELECT {results_str}, b.status FROM MaskDesign d "
                         "JOIN Observers o on o.ObId = d.DesPID "
