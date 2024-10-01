@@ -53,7 +53,7 @@ retrieval_queries = {
         """,
 
     "user_inventory": """
-        SELECT d.*, b.status, b.Date_Use
+        SELECT d.*, b.guiname, b.status, b.Date_Use
         FROM MaskDesign d
         LEFT JOIN MaskBlu b ON d.DesId = b.DesId
         WHERE d.DesPId IN (
