@@ -116,7 +116,7 @@ retrieval_queries = {
 admin_queries = {
 
     "recent": """
-        SELECT m.MillDate, m.MillId, m.GUIname, m.millseq, m.maskid,
+        SELECT m.MillDate, m.MillId, m.GUIname, b.millseq, m.maskid,
         d.DesName, d.DesId,
         b.BluId, b.status,
         d.DesNslit, d.INSTRUME,
@@ -129,7 +129,7 @@ admin_queries = {
         """,
 
     "recent_barcode": """
-        SELECT m.MillDate, m.MillId, m.GUIname, m.millseq, m.maskid,
+        SELECT m.MillDate, m.MillId, m.GUIname, b.millseq, m.maskid,
         d.DesName, d.DesId,
         b.BluId, b.status,
         d.DesNslit, d.INSTRUME,
@@ -155,7 +155,7 @@ admin_queries = {
         """,
 
     "timeline": """
-        SELECT b.stamp, b.Date_Use, b.bluid, b.GUIname, m.millseq, d.DesId, 
+        SELECT b.stamp, b.Date_Use, b.bluid, b.GUIname, b.millseq, d.DesId, 
         b.status, d.DesName, d.DesNslit, d.INSTRUME, m.MillDate
         FROM MaskDesign D, Mask m RIGHT JOIN MaskBlu b
         ON m.BluId = b.BluId
