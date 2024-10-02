@@ -155,11 +155,11 @@ admin_queries = {
         """,
 
     "timeline": """
-        SELECT b.stamp, b.Date_Use, b.bluid, b.GUIname, b.millseq, d.DesId, 
+        SELECT d.stamp, b.Date_Use, b.bluid, b.GUIname, b.millseq, d.DesId, 
         b.status, d.DesName, d.DesNslit, d.INSTRUME, m.MillDate
-        FROM MaskDesign D, Mask m RIGHT JOIN MaskBlu b
+        FROM MaskDesign d, Mask m RIGHT JOIN MaskBlu b
         ON m.BluId = b.BluId
-        WHERE b.stamp >= %s AND d.DesId = b.DesId 
+        WHERE d.stamp >= %s AND d.DesId = b.DesId 
         ORDER BY b.Date_Use, d.INSTRUME
         """,
 
