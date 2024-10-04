@@ -7,7 +7,7 @@ import email_utils as utils
 from collections import defaultdict
 
 
-CONFIG_FILE = "slitmask_emails.ini"
+CONFIG_FILE = "slitmask_emails.live.ini"
 APP_PATH = path.abspath(path.dirname(__file__))
 
 

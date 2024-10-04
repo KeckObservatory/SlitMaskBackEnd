@@ -4,7 +4,7 @@ from os import path
 from datetime import datetime
 import email_utils as utils
 
-CONFIG_FILE = "slitmask_emails.ini"
+CONFIG_FILE = "slitmask_emails.live.ini"
 APP_PATH = path.abspath(path.dirname(__file__))
 
 if __name__ == '__main__':

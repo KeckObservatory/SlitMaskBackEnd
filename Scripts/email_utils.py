@@ -15,7 +15,7 @@ SLITMASK_LOGNAME = 'slitmask_emails'
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-def start_up(app_path, config_name='slitmask_emails.ini'):
+def start_up(app_path, config_name='slitmask_emails.live.ini'):
     """
     The API start up configuration.
 
