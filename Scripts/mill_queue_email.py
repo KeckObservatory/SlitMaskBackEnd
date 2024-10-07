@@ -72,7 +72,7 @@ if __name__ == '__main__':
     log.info('-- Masks Recently Milled Notification Email script --')
 
     today = datetime.utcnow()
-    mail_subject = f"Current Masks in Slitmask Queue {today.strftime('%Y-%m-%d')}"
+    mail_subject = f"Current Slitmask Queue {today.strftime('%Y-%m-%d')}"
 
     mail_server = utils.get_cfg(cfg, 'email', 'server')
     mail_to = utils.get_cfg(cfg, 'email', 'info')
