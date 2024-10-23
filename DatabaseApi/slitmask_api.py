@@ -146,6 +146,12 @@ class UserInfo:
 
         return results[0][0]
 
+    def get_user_email(self):
+        """
+        Access to the user email
+        """
+        return self.email
+
 
 def init_api(keck_id=None):
     """
@@ -213,7 +219,7 @@ def upload_mdf():
 
     in_fun = IngestFun(user_info, db_obj, OBS_INFO)
     mask_path = f"{RAW_MDF_DIR}/{mdf_file.filename}"
-    success, err_report = in_fun.ingestMDF(mdf_file, mask_path)
+    success, err_report = in_fun.ingestMDF(mdf_file, mask_path, user_info.get_user_email())
     if not success:
         errors = "\n".join([f"• {err}" for err in err_report])
         return create_response(success=0, err=errors, stat=422)

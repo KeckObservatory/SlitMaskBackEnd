@@ -4,6 +4,7 @@
 import os
 import subprocess
 
+from datetime import datetime, timedelta
 from astropy.io import fits
 
 import logger_utils as log_fun
@@ -197,7 +198,7 @@ class IngestFun:
 
     ########################################################################
 
-    def ingestMDF(self, file, save_path):
+    def ingestMDF(self, file, save_path, email):
         """
 
         file,           # path to a MDF file
@@ -208,13 +209,19 @@ class IngestFun:
         validate the structure and content of the file
         insert data from its FITS tables into the database
         """
-        # open the FITS file
-        try:
-            hdul = fits.open(file)
-        except Exception as e:
-            msg = f"could not open file: {file.filename}: check that it is a FITS file!"
-            self.log.error(f"{msg}: exception: {e} ")
-            return False, [msg]
+
+        # Check if it is a .file3 LRIS AUTOSLIT File
+        if self.is_autoslit_file(file.filename):
+            file.save(save_path)
+            filename = self.convertLRIStoMDF(save_path, email)
+            hdul, err_report = self.open_autoslit_fits(filename)
+        else:
+            # for files submitted as FITs
+            hdul, err_report = self.open_fileobj_fits(file)
+
+        # can't open the FITS file
+        if err_report:
+            return False, err_report
 
         # validate the structure and content of the file
         try:
@@ -388,7 +395,67 @@ class IngestFun:
 
         return success, err_report
 
-    def convertLRIStoMDF(self, file3path, email, date_use):
+    def open_fileobj_fits(self, file):
+        """
+        Open the FITs file from the request file object.
+
+        :param file: <str> requests file object
+
+        :return: <hdu>, <str> the opened FITS HDU,  an error report if applicable.
+        """
+        try:
+            hdul = fits.open(file.filename)
+        except Exception as e:
+            err_report = [
+                f"could not open file: {file.filename},  check that it is a FITS file!"
+            ]
+            self.log.error(f"{err_report}: exception: {e} ")
+            return None, err_report
+
+        return hdul, None
+
+    def open_autoslit_fits(self, filename):
+        """
+        Open the FITs file generated from the Autoslit ascii file
+        using the TCL maskpgtcl/lsc2df.
+
+        :param filename: <str> the full path and filename of the file.
+
+        :return: <hdu>, <str> the opened FITS HDU,  an error report if applicable.
+        """
+        # open the FITS file
+        try:
+            hdul = fits.open(filename)
+        except Exception as e:
+            err_report = [
+                f"could not open file: {filename}",
+                "If it is an Autoslit LRIS file,  filename must end in .file3",
+                "Otherwise,  check that it is a FITS file!"
+            ]
+            self.log.error(f"{err_report}: exception: {e} ")
+            return None, err_report
+
+        return hdul, None
+
+    def is_autoslit_file(self, filename):
+        """
+        Check for LRIS Autoslit files which are ascii files with .file3 suffix
+
+        :param filename: <str> the filename
+
+        :return: <bool> True if it looks like a Autoslit .file3 file
+        """
+        if '.file3' in filename:
+            try:
+                suffix = filename.split('.')[1]
+                if suffix == 'file3':
+                    return True
+            except Exception as err:
+                self.log(f'issue determining if file is from LRIS AutoSlit, '
+                         f'filename: {filename}, err: {err}')
+        return False
+
+    def convertLRIStoMDF(self, file3path, email):
         """
         given a .file3 file created by the LRIS mask design software
         convert that to a mask design FITS
@@ -415,18 +482,20 @@ class IngestFun:
         outputs:
         MDFfile     path to DEIMOS-like mask design FITS tables (MDF) file
         """
-        log = log_fun.get_log()
+        today = datetime.today()
+        date_use = today + timedelta(days=180)
+        date_use = date_use.strftime('%Y-%m-%d')
+
         # convention is that we name the output MDF file like the input .file3
         file3 = os.path.basename(file3path)
-        mdfname = None
 
         # Despite the 2023/2024 rewrite for PostgreSQL the lsc2df Tcl code
         # outputs some messages to stdout and stderr.
         # We expect that sometimes stdout and stderr will be useful
         # for debugging problems.
         # When we last checked the Makefile for lsc2df creates KROOT/var/lsc2df/log
-        lsc2dfOut = "@KROOT@/var/lsc2df/log/%s.out" % file3
-        lsc2dferr = "@KROOT@/var/lsc2df/log/%s.err" % file3
+        lsc2dfOut = "/kroot/var/lsc2df/log/%s.out" % file3
+        lsc2dferr = "/kroot/var/lsc2df/log/%s.err" % file3
         # we choose 'w' with the expectation that we want to overwrite
         # any previous attempts to process the same input file
         STDOUT = open(lsc2dfOut, 'w')
@@ -434,10 +503,10 @@ class IngestFun:
 
         # the 2023/2024 version of lsc2df code is in ../tcl
         # When we last checked the Makefile for lsc2df has BINSUB = maskpgtcl
-        lsc2df = "@RELDIR@/bin/maskpgtcl/lsc2df"
+        lsc2df = "/kroot/rel/default/bin/maskpgtcl/lsc2df"
 
         # we are going to use subprocess.call even if we are python3
-        status = subprocess.call([lsc2df, f"{file3path} {email} {mdfname} {date_use}"],
+        status = subprocess.call([lsc2df, file3path, email, date_use],
                                  stdout=STDOUT, stderr=STDERR)
 
         # make sure output gets flushed
@@ -445,8 +514,8 @@ class IngestFun:
         STDERR.close()
 
         if status != 0:
-            log.error(f"{lsc2df} failed: see stdout {lsc2dfOut} and "
-                      f"stderr {lsc2dferr}")
+            self.log.error(f"{lsc2df} failed: see stdout {lsc2dfOut} and "
+                           f"stderr {lsc2dferr}")
 
             # return empty string as the path of the output file
             return ""
@@ -454,7 +523,7 @@ class IngestFun:
 
         # when we last checked the Makefile for lsc2df creates KROOT/var/lsc2df
         # we expect that lsc2df has created a MDF file with this name
-        mdfOutD = "@KROOT@/var/lsc2df"
+        mdfOutD = "/kroot/var/lsc2df"
         maskfits = "%s/%s.fits" % (mdfOutD, file3)
 
         return maskfits
