@@ -404,7 +404,7 @@ class IngestFun:
         :return: <hdu>, <str> the opened FITS HDU,  an error report if applicable.
         """
         try:
-            hdul = fits.open(file.filename)
+            hdul = fits.open(file)
         except Exception as e:
             err_report = [
                 f"could not open file: {file.filename},  check that it is a FITS file!"
