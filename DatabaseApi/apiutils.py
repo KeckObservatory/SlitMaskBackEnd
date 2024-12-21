@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 
 from general_utils import commitOrRollback
 import logger_utils as log_fun
+from slitmask_queries import get_query
 
 from general_utils import do_query, get_dict_result, get_keck_obs_info
 from mask_constants import MASK_ADMIN
@@ -386,13 +387,13 @@ def chk_keck_observers(psql_db_obj, user_email, obs_info_url, log):
     if not results or 'Id' not in results[0]:
         return None
 
-    mask_id = results[0]['Id']
+    obsvr_id = results[0]['Id']
 
     userQuery = "select ObId from Observers where keckid = %s"
 
     # check the mask database using the keck-id to look for a legacy mask ID.
     try:
-        psql_db_obj.cursor.execute(userQuery, (mask_id,))
+        psql_db_obj.cursor.execute(userQuery, (obsvr_id,))
     except Exception as e:
         log.error(f"{userQuery} failed: {psql_db_obj.cursor.query}: "
                   f"exception class {e.__class__.__name__}: {e}")
@@ -402,9 +403,22 @@ def chk_keck_observers(psql_db_obj, user_email, obs_info_url, log):
     lenres = len(results)
 
     if lenres > 0:
-        mask_id = results[0]['obid']
+        obsvr_id = results[0]['obid']
+        return obsvr_id
 
-    return mask_id
+    # strictly only the OBID and KeckID are required in the table,
+    # however the name and email are used by the tcl.
+    firstname = results[0].get('FirstName', '')
+    lastname = results[0].get('LastName', '')
+    email = results[0].get('Email', '')
+    institute = results[0].get('AllocInst', '')
+
+    # no entry in the table leads to issues with the TCL later,  add entry
+    params = (obsvr_id, firstname, lastname, institute, email)
+    query = get_query('new_observer')
+    ob_id = psql_db_obj.cursor.execute(query, params)
+
+    return ob_id
 
 
 def send_email(email_msg, email_info, subject):

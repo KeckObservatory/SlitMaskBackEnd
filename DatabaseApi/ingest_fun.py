@@ -483,7 +483,7 @@ class IngestFun:
         MDFfile     path to DEIMOS-like mask design FITS tables (MDF) file
         """
         today = datetime.today()
-        date_use = today + timedelta(days=180)
+        date_use = today + timedelta(days=30)
         date_use = date_use.strftime('%Y-%m-%d')
 
         # convention is that we name the output MDF file like the input .file3

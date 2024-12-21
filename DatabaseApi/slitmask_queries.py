@@ -201,6 +201,31 @@ admin_queries = {
 }
 
 ingest_queries = {
+    "new_observer": """
+    INSERT INTO observers (
+        obid, 
+        keckid, 
+        firstnm, 
+        lastnm, 
+        addr1, 
+        addr2, 
+        city, 
+        state, 
+        zip, 
+        phone, 
+        email, 
+        institution, 
+        comments, 
+        super, 
+        pass, 
+        stamp, 
+        inst, 
+        privbits) VALUES (
+            default, %s, %s, %s, '', '', '', '', 00000, '', %s, %s, '', 
+            0, '', NULL, 'LD', 0
+        )
+        RETURNING obid
+    """,
     "mask_design_insert": """
     INSERT INTO MaskDesign (
         DesId,
