@@ -330,6 +330,9 @@ def mask_user_id(db_obj, user_email, obs_info_url):
              None - an error occurred and ID could be determined.
 
     """
+    if not user_email:
+        return None
+
     log = log_fun.get_log()
 
     userQuery = "select ObId from Observers where email ilike %s"
@@ -348,6 +351,7 @@ def mask_user_id(db_obj, user_email, obs_info_url):
     if lenres < 1:
         # check the Keck Observer table,  and re-check UCO table with keck_id
         mask_id = chk_keck_observers(db_obj, user_email, obs_info_url, log)
+
         if not mask_id:
             log.warning(f"{user_email} is not a registered mask user")
             return None
@@ -383,11 +387,11 @@ def chk_keck_observers(psql_db_obj, user_email, obs_info_url, log):
     # query = "select * from observers where email = %s"
     url_params = f"email={user_email}"
 
-    results = get_keck_obs_info(obs_info_url, url_params)
-    if not results or 'Id' not in results[0]:
+    keck_results = get_keck_obs_info(obs_info_url, url_params)
+    if not keck_results or 'Id' not in keck_results[0]:
         return None
 
-    obsvr_id = results[0]['Id']
+    obsvr_id = keck_results[0]['Id']
 
     userQuery = "select ObId from Observers where keckid = %s"
 
@@ -399,19 +403,19 @@ def chk_keck_observers(psql_db_obj, user_email, obs_info_url, log):
                   f"exception class {e.__class__.__name__}: {e}")
         return None
 
-    results = psql_db_obj.cursor.fetchall()
-    lenres = len(results)
+    psql_results = psql_db_obj.cursor.fetchall()
+    lenres = len(psql_results)
 
     if lenres > 0:
-        obsvr_id = results[0]['obid']
+        obsvr_id = psql_results[0]['obid']
         return obsvr_id
 
     # strictly only the OBID and KeckID are required in the table,
     # however the name and email are used by the tcl.
-    firstname = results[0].get('FirstName', '')
-    lastname = results[0].get('LastName', '')
-    email = results[0].get('Email', '')
-    institute = results[0].get('AllocInst', '')
+    firstname = keck_results[0].get('FirstName', '')
+    lastname = keck_results[0].get('LastName', '')
+    email = keck_results[0].get('Email', '')
+    institute = keck_results[0].get('AllocInst', '')
 
     # no entry in the table leads to issues with the TCL later,  add entry
     params = (obsvr_id, firstname, lastname, institute, email)

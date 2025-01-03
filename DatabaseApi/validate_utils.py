@@ -45,9 +45,9 @@ def set_design_pid(db, hdul, maps, obs_info):
 
     # parse design author e-mail address
     DesAuth = hdul['MaskDesign'].data['DesAuth'][0]
-    log.info('Mask design author email (MaskDesign.DesAuth)')
+    log.info(f'Mask design author email (MaskDesign.DesAuth) {DesAuth}')
     DesAuthEmail = mbox2email(DesAuth)
-    log.info('Parsed mask design author email (DesAuthEmail)')
+    log.info(f'Parsed mask design author email (DesAuthEmail) {DesAuthEmail}')
 
     # get user
     design_pid = mask_user_id(db, DesAuthEmail, obs_info)
