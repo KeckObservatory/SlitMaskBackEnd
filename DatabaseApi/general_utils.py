@@ -279,7 +279,7 @@ def chk_mask_exists(curse, design_id):
 
 def chk_blue_mask_exists(curse, blue_id):
     if not do_query('mask_exists_blue', curse, (blue_id,)):
-        return 503, f'Database Error! {e}'
+        return 503, f'Database Error!'
 
     if not get_dict_result(curse):
         return 422, f"Mask with blue-id={blue_id} not in the database"
