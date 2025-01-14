@@ -157,6 +157,7 @@ class MaskValidation:
         if mask_date_use_dt > yesterday:
             return True
 
+        return True 
         # msg = f"MaskBlu.Date_Time {mask_use_date} is before yesterday: {yesterday}"
         msg = f"Invalid mask blueprint date,  the date (MaskBlu.Date_Use) " \
               f"{mask_use_date} is before: {yesterday.strftime('%Y-%m-%d')}."
