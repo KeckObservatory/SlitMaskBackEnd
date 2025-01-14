@@ -458,9 +458,13 @@ def send_email(email_msg, email_info, subject):
 
         msg.attach(MIMEText(html_msg, 'html'))
 
-        server = smtplib.SMTP(email_info['server'])
-        server.sendmail(email_info['from'], email_address, msg.as_string())
-        server.quit()
+        try:
+            server = smtplib.SMTP(email_info['server'])
+            server.sendmail(email_info['from'], email_address, msg.as_string())
+            server.quit()
+        except Exception as err:
+            log.error(f"Error sending email to {email_address}: {err}")
+            continue
 
         log.info(f"Email sent to: {email_address}")
 
