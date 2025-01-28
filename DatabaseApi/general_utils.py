@@ -492,6 +492,7 @@ def order_inventory(results):
         ('status', 'Status'), ('desdate', 'Design-Date'),
         ('date_use', 'Date-Use'), ('stamp', 'Submitted'),
         ('projname', 'Project-Name'), ('guiname', 'Mask-Name'),
+        ('maskid', 'Barcode'),
         ('desname', 'Design-Name'),
         ('desnslit', 'Number-Slits'), ('instrume', 'Instrument'),
         ('ra_pnt', 'RA'), ('dec_pnt', 'DEC'), ('radepnt', 'Coordinates'),
@@ -525,7 +526,8 @@ def order_search_results(results):
     new_keys_map = [
         ('status', 'Status'), ('desdate', 'Design-Date'), ('desid', 'Design-ID'),
         ('desname', 'Design-Name'), ('guiname', 'GUI-Name'),
-        ('projname', 'Project-Name'), ('ra_pnt', 'RA'), ('instrume', 'Instrument'),
+        ('projname', 'Project-Name'), ('ra_pnt', 'RA'),
+        ('maskid', 'Barcode'), ('instrume', 'Instrument'),
         ('dec_pnt', 'Declination'),
         ('radepnt', 'System'), ('keckid', 'Keck-ID'), ('firstnm', 'First-Name'),
         ('lastnm', 'Last-Name'), ('email', 'Email'), ('institution', 'Institution'),

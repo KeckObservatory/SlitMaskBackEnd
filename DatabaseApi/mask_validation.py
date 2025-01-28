@@ -254,9 +254,9 @@ class MaskValidation:
             if dslitid not in self.hdul['DesiSlits'].data['dSlitId']:
                 # foo want to mark row as do not ingest
                 if dslitid != weirddslitid:
-                    msg = f"The blueprint (BluSlits) has slit ID (dSlitId) " \
+                    msg = f"The blueprint (BluSlits) has slit ID {dslitid} " \
                           f"{dslitid} that is not in the design slits " \
-                          f"(DesiSlits.dSlitId)."
+                          f"(esiSlits.dSlitId)."
 
                     self.log.warning(msg)
                     self.err_report.append(msg)

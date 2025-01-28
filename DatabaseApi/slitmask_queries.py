@@ -56,6 +56,7 @@ retrieval_queries = {
         SELECT d.*, b.guiname, b.status, b.Date_Use
         FROM MaskDesign d
         LEFT JOIN MaskBlu b ON d.DesId = b.DesId
+        LEFT JOIN Mask m ON b.BluId = m.BluId
         WHERE d.DesPId IN (
             SELECT id FROM unnest(%s) AS id
         )
@@ -421,7 +422,7 @@ auxiliary_queries = {
 # the results to return for the admin search table
 results_str = "d.stamp, d.desid, d.desname, d.desdate, d.instrume, projname, " \
               "ra_pnt, dec_pnt, radepnt, o.keckid, o.firstnm, o.lastnm, " \
-              "o.email, o.institution, b.status, b.guiname, " \
+              "o.email, o.institution, b.status, b.guiname, m.maskid, " \
               "COALESCE(b.millseq, m.MillSeq) AS millseq"
 
 # the admin search table queries,  one query per search option
@@ -534,8 +535,7 @@ admin_search_queries = {
                         "LEFT JOIN Mask m ON m.BluId = b.BluId "
                         "WHERE EXISTS ("
                         "  SELECT 1 FROM MaskBlu WHERE DesId = d.DesId AND BluId IN ("
-                        "    SELECT BluId FROM Mask WHERE MaskId = %s)) "
-                        " AND MaskId = 8840",
+                        "    SELECT BluId FROM Mask WHERE MaskId = %s)) ",
 
     "search_milled_no": f"SELECT {results_str}, b.status FROM MaskDesign d "
                         "JOIN Observers o on o.ObId = d.DesPID "
