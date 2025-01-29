@@ -491,7 +491,7 @@ def order_inventory(results):
     new_keys_map = [
         ('status', 'Status'), ('desdate', 'Design-Date'),
         ('date_use', 'Date-Use'), ('stamp', 'Submitted'),
-        ('projname', 'Project-Name'), ('guiname', 'Mask-Name'),
+        ('projname', 'Project-Name'), ('guiname', 'GUI-Name'),
         ('maskid', 'Barcode'),
         ('desname', 'Design-Name'),
         ('desnslit', 'Number-Slits'), ('instrume', 'Instrument'),
