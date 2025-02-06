@@ -396,18 +396,31 @@ auxiliary_queries = {
         JOIN maskdesign md ON mb.desid = md.desid 
         WHERE mb.guiname = %s;
         """,
+    # "sias_type1": """
+    #     SELECT b.date_use,c.maskid,b.guiname,a.instrume,d.lastnm,
+    #           d.firstnm,b.bluid
+    #     FROM MaskDesign a, MaskBlu b, Mask c, observers d
+    #     WHERE date_use>= %s
+    #         AND date_use <= %s
+    #         AND (b.status<9 OR b.status IS NULL)
+    #         AND c.bluid=b.bluid
+    #         AND a.desid=b.desid
+    #         AND d.obid=b.blupid
+    #     ORDER BY date_use
+    #       """,
     "sias_type1": """
-        SELECT b.date_use,c.maskid,b.guiname,a.instrume,d.lastnm,
-              d.firstnm,b.bluid 
-        FROM MaskDesign a, MaskBlu b, Mask c, observers d 
-        WHERE date_use>= %s 
-            AND date_use <= %s 
-            AND (b.status<9 OR b.status IS NULL) 
-            AND c.bluid=b.bluid 
-            AND a.desid=b.desid 
-            AND d.obid=b.blupid 
-        ORDER BY date_use
-          """,
+        SELECT DISTINCT ON (b.bluid) 
+            b.date_use, c.maskid, b.guiname, a.instrume, d.lastnm, 
+            d.firstnm, b.bluid 
+        FROM MaskDesign a
+        JOIN MaskBlu b ON a.desid = b.desid
+        JOIN Mask c ON c.bluid = b.bluid
+        JOIN observers d ON d.obid = b.blupid
+        WHERE b.date_use >= %s 
+            AND b.date_use <= %s 
+            AND (b.status < 9 OR b.status IS NULL)
+        ORDER BY b.bluid, c.maskid DESC, b.date_use
+        """,
     "sias_type2": """
         SELECT b.date_use,b.guiname,a.instrume,c.lastnm,c.firstnm,b.bluid 
         FROM MaskDesign a, MaskBlu b, observers c 
