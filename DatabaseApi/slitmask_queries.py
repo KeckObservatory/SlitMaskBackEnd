@@ -410,28 +410,28 @@ auxiliary_queries = {
     #     ORDER BY date_use
     #       """,
     "sias_type1": """
-SELECT DISTINCT ON 
-    (CASE 
-        WHEN b.date_use < '2034-01-01' THEN b.bluid::TEXT  
-        ELSE b.bluid::TEXT || '-' || c.maskid::TEXT  
-    END)
-    b.date_use, c.maskid, b.guiname, a.instrume, d.lastnm,
-    d.firstnm, b.bluid
-FROM MaskDesign a
-JOIN MaskBlu b ON a.desid = b.desid
-JOIN Mask c ON c.bluid = b.bluid
-JOIN observers d ON d.obid = b.blupid
-WHERE b.date_use >= %s
-    AND b.date_use <= %s
-    AND (b.status < 9 OR b.status IS NULL)
-ORDER BY 
-    (CASE 
-        WHEN b.date_use < '2034-01-01' THEN b.bluid::TEXT  
-        ELSE b.bluid::TEXT || '-' || c.maskid::TEXT  
-    END),
-    b.date_use DESC,  -- Ensures latest dates come first
-    c.maskid DESC;    -- Ensures highest barcode (maskid) is picked
-            """,
+        SELECT DISTINCT ON 
+            (CASE 
+                WHEN b.date_use < '2034-01-01' THEN b.bluid::TEXT  
+                ELSE b.bluid::TEXT || '-' || c.maskid::TEXT  
+            END)
+            b.date_use, c.maskid, b.guiname, a.instrume, d.lastnm,
+            d.firstnm, b.bluid
+        FROM MaskDesign a
+        JOIN MaskBlu b ON a.desid = b.desid
+        JOIN Mask c ON c.bluid = b.bluid
+        JOIN observers d ON d.obid = b.blupid
+        WHERE b.date_use >= %s
+            AND b.date_use <= %s
+            AND (b.status < 9 OR b.status IS NULL)
+        ORDER BY 
+            (CASE 
+                WHEN b.date_use < '2034-01-01' THEN b.bluid::TEXT  
+                ELSE b.bluid::TEXT || '-' || c.maskid::TEXT  
+            END),
+            b.date_use DESC,  -- Ensures latest dates come first
+            c.maskid DESC;    -- Ensures highest barcode (maskid) is picked
+                    """,
     "sias_type2": """
         SELECT b.date_use,b.guiname,a.instrume,c.lastnm,c.firstnm,b.bluid 
         FROM MaskDesign a, MaskBlu b, observers c 
