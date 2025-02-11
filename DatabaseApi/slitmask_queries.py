@@ -429,8 +429,8 @@ auxiliary_queries = {
                 WHEN b.date_use < '2034-01-01' THEN b.bluid::TEXT  
                 ELSE b.bluid::TEXT || '-' || c.maskid::TEXT  
             END),
-            b.date_use DESC,  -- Ensures latest dates come first
-            c.maskid DESC;    -- Ensures highest barcode (maskid) is picked
+            b.date_use DESC, 
+            c.maskid DESC;   
                     """,
     "sias_type2": """
         SELECT b.date_use,b.guiname,a.instrume,c.lastnm,c.firstnm,b.bluid 
