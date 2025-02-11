@@ -97,7 +97,7 @@ retrieval_queries = {
 
     "blue_slit": "SELECT * FROM BluSlits WHERE BluId = %s",
 
-    "blue_mask": "SELECT * FROM Mask WHERE BluId = %s",
+    "blue_mask": "SELECT * FROM Mask WHERE BluId = %s ORDER BY maskid DESC",
 
     "extend_update": """
         UPDATE MaskBlu SET Date_Use =
@@ -396,6 +396,7 @@ auxiliary_queries = {
         JOIN maskdesign md ON mb.desid = md.desid 
         WHERE mb.guiname = %s;
         """,
+    # this returns all with duplicate bluid -- different barcodes
     # "sias_type1": """
     #     SELECT b.date_use,c.maskid,b.guiname,a.instrume,d.lastnm,
     #           d.firstnm,b.bluid
@@ -409,18 +410,27 @@ auxiliary_queries = {
     #     ORDER BY date_use
     #       """,
     "sias_type1": """
-        SELECT DISTINCT ON (b.bluid) 
-            b.date_use, c.maskid, b.guiname, a.instrume, d.lastnm, 
-            d.firstnm, b.bluid 
+        SELECT DISTINCT ON 
+            (CASE 
+                WHEN b.date_use < '2034-01-01' THEN b.bluid::TEXT  -- Ensure consistent type
+                ELSE b.bluid::TEXT || '-' || c.maskid::TEXT 
+            END)
+            b.date_use, c.maskid, b.guiname, a.instrume, d.lastnm,
+            d.firstnm, b.bluid
         FROM MaskDesign a
         JOIN MaskBlu b ON a.desid = b.desid
         JOIN Mask c ON c.bluid = b.bluid
         JOIN observers d ON d.obid = b.blupid
-        WHERE b.date_use >= %s 
-            AND b.date_use <= %s 
+        WHERE b.date_use >= %s
+            AND b.date_use <= %s
             AND (b.status < 9 OR b.status IS NULL)
-        ORDER BY b.bluid, c.maskid DESC, b.date_use
-        """,
+        ORDER BY 
+            (CASE 
+                WHEN b.date_use < '2034-01-01' THEN b.bluid::TEXT  
+                ELSE b.bluid::TEXT || '-' || c.maskid::TEXT  
+            END),
+            b.date_use;
+            """,
     "sias_type2": """
         SELECT b.date_use,b.guiname,a.instrume,c.lastnm,c.firstnm,b.bluid 
         FROM MaskDesign a, MaskBlu b, observers c 
