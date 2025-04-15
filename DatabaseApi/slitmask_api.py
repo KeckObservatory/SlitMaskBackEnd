@@ -745,6 +745,94 @@ def mill_files(db_obj, user_info):
                      as_attachment=True)
 
 
+@app.route("/slitmask/mask-output")
+def dbmaskout_files():
+    """
+    In the api specification section 2.3 this is "millMask"
+    There is nothing in the original cgiTcl like "millMask"
+    We believe the api document means "millFile" instead of "millMask"
+
+    api2_3.py - def millFile( db, bluid )
+
+    generate file of CNC mill code that will cut Blueprint bluid
+
+    inputs:
+        bluid       BlueprintId should exist in the database
+        barcode     the mask.maskid (barcode)
+
+    outputs:
+    path to G-code file which tell CNC mill how to cut the mask
+    path to .f2n file of diagnostic info about slitlets
+
+    This python function requires invoking external programs
+        dbMaskOut
+            Tcl script
+            CAVEAT: original code was not under source control
+            CAVEAT: SVN has many snapshots of different working versions
+            CAVEAT: most snapshots assume other external stuff exists
+            For the version to be used with this python and PostgreSQL
+            source code lives in SVN at
+            kroot/util/slitmask/xfer2keck/tcl/dbMaskOut.sin
+            extracts mask data from database and writes FITS file
+    """
+    db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
+    curse = db_obj.get_dict_curse()
+
+    barcode = request.args.get('barcode')
+    blue_id = request.args.get('blue-id')
+    if not barcode and not blue_id:
+        return create_response(
+            success=0, stat=401,
+            err=f'One of mask barcode (barcode) or blueprint ID (blue-id) is required!'
+        )
+    file_type = request.args.get('file-type')
+    if file_type:
+        if file_type not in ('ali', 'fits'):
+            return create_response(
+                success=0, stat=401,
+                err=f'The file type options are ali or fits!'
+            )
+
+    if not blue_id:
+        success, blue_id = utils.barcode_to_bluid(barcode, curse)
+
+    # run dbmaskout in order to get the mask_fits file
+    try:
+        maskout_files = utils.dbmaskout_runner(blue_id, KROOT, DBMASKOUT_DIR)
+    except Exception as err:
+        log.error(f"error running dbMaskOut, {blue_id}, {err}")
+        maskout_files = None
+
+    if not maskout_files:
+        msg = "error creating the mask description file"
+        return create_response(success=0, err=f'{msg}', stat=401)
+
+    if file_type:
+        # [mask_fits_filename, mask_ali_filename]
+        if file_type == 'ali':
+            mask_fits_filename = maskout_files[1]
+        else:
+            mask_fits_filename = maskout_files[0]
+
+        return send_file(
+            mask_fits_filename, as_attachment=True,
+            download_name=mask_fits_filename.split('/')[-1]
+        )
+
+    # mask_fits_filename = maskout_files[0]
+
+    # Create an in-memory zip file to store the files
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+        for file_path in maskout_files:
+            zip_file.write(file_path, arcname=file_path.split("/")[-1])
+
+    zip_buffer.seek(0)
+
+    return send_file(zip_buffer, download_name=f'maskout-files-{blue_id}.zip',
+                     as_attachment=True)
+
+
 @app.route("/slitmask/remill-mask")
 @init_required
 def remill_mask(db_obj, user_info):

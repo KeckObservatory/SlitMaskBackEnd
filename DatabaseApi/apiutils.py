@@ -170,6 +170,27 @@ def bluid_to_desid(blue_id, curse):
 
 ################################################
 
+def barcode_to_bluid(barcode, curse):
+    """
+    Get the blue_id from the barcode.
+
+    :param barcode: <str> the barcode string
+
+    :return: <int> the integer of the blueprint id
+    """
+    if not do_query('barcode_to_blue', curse, (barcode,)):
+        err = 'Database Error!'
+        return False, err
+
+    blue_id_results = get_dict_result(curse)
+    if not blue_id_results or 'bluid' not in blue_id_results[0]:
+        err = f'Database Error,  no blue id found for barcode {barcode}!'
+        return False, err
+
+    return True, blue_id_results[0]['bluid']
+
+################################################
+
 
 def my_blueprint(user_info, db_obj, blue_id):
     """

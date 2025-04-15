@@ -21,6 +21,8 @@ ownership_queries = {
 
     "blue_to_design": "SELECT desid FROM maskblu WHERE bluid = %s",
 
+    "barcode_to_blue": "SELECT bluid FROM mask WHERE maskid = %s",
+
     # used to get all the < yr 2024 account obids,  > yr 2024 accounts obid=keckid
     "obid_column": "SELECT obid, keckid FROM observers",
     "keckid_from_obid": "SELECT keckid FROM observers WHERE obid = %s",
