@@ -1156,10 +1156,15 @@ def get_all_valid_masks_script():
     db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
 
     success, results = get_all_valid_masks_func(db_obj)
+    filtered_results = []
+    for mask in results:
+        if mask['status'] == consts.READY:
+            filtered_results.append(mask)
+
     if not success:
         return create_response(success=0, err='Database Error!', stat=503)
 
-    return create_response(data=results)
+    return create_response(data=filtered_results)
 
 
 def get_all_valid_masks_func(db_obj):
