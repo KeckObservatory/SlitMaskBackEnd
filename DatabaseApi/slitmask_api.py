@@ -297,7 +297,9 @@ def get_overdue():
     :return: <json> list of mask objects which want to be milled
     """
     ordered_results = masks_need_mill()
-    overdue_date = datetime.now() + timedelta(days=consts.MILL_OVERDUE)
+    now = datetime.now()
+    overdue_date = now + timedelta(days=consts.MILL_OVERDUE)
+    yesterday =  now - timedelta(days=1)
 
     overdue = []
     for result in ordered_results:
@@ -306,7 +308,7 @@ def get_overdue():
 
         # make datetime for an accurate comparison
         use_date = datetime.strptime(result['Use-Date'], '%Y-%m-%d')
-        if use_date <= overdue_date:
+        if overdue_date >= use_date >= yesterday:
             overdue.append(result)
 
     return create_response(data=overdue)
