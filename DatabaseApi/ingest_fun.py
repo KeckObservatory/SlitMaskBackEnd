@@ -2,6 +2,7 @@
 
 # tools for access to DEIMOS multi-HDU FITS slitmask description file (MDF)
 import os
+import shutil
 import subprocess
 
 from datetime import datetime, timedelta
@@ -213,6 +214,8 @@ class IngestFun:
         # Check if it is a .file3 LRIS AUTOSLIT File
         if self.is_autoslit_file(file.filename):
             file.save(save_path)
+            orig_path = f"{save_path}.orig"
+            shutil.copy(save_path, orig_path)
             filename = self.convertLRIStoMDF(save_path, email)
             hdul, err_report = self.open_autoslit_fits(filename)
         else:
