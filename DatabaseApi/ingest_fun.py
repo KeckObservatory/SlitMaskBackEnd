@@ -3,6 +3,7 @@
 # tools for access to DEIMOS multi-HDU FITS slitmask description file (MDF)
 import os
 import shutil
+import threading
 import subprocess
 
 from datetime import datetime, timedelta
@@ -16,6 +17,7 @@ from general_utils import commitOrRollback
 from mdf_content import mdfcontent
 from slitmask_queries import get_query
 from mask_insert import MaskInsert
+from tilsotua_interface import add_slit_coordinates
 
 # Suppress astropy header keyword warnings
 import warnings
@@ -212,12 +214,19 @@ class IngestFun:
         """
 
         # Check if it is a .file3 LRIS AUTOSLIT File
-        if self.is_autoslit_file(file.filename):
+        lris_out_file = None
+        is_lris = self.is_autoslit_file(file.filename)
+        if is_lris:
             file.save(save_path)
-            orig_path = f"{save_path}.orig"
-            shutil.copy(save_path, orig_path)
-            filename = self.convertLRIStoMDF(save_path, email)
-            hdul, err_report = self.open_autoslit_fits(filename)
+            wrk_file = save_path.replace('.file3', '')
+            shutil.copy2(save_path, wrk_file)
+
+            lris_out_file = self.convertLRIStoMDF(wrk_file, email)
+            hdul, err_report = self.open_autoslit_fits(lris_out_file)
+
+            # the original .file3 file is overwritten as a fits by lsc2df
+            os.rename(wrk_file, f'{wrk_file}.file3')
+            shutil.copy2(lris_out_file, save_path.replace('.file3', '.fits'))
         else:
             # for files submitted as FITs
             hdul, err_report = self.open_fileobj_fits(file)
@@ -235,10 +244,11 @@ class IngestFun:
             valid = False
 
         # save file,  pass if there is an issue saving the file
-        try:
-            hdul.writeto(save_path, overwrite=True)
-        except Exception as err:
-            self.log.warning(f"Error saving file: {err}")
+        if not is_lris:
+            try:
+                hdul.writeto(save_path, overwrite=True)
+            except Exception as err:
+                self.log.warning(f"Error saving file: {err}")
 
         if not valid:
             return False, err_report
@@ -389,6 +399,14 @@ class IngestFun:
             success = False
 
         ####################
+
+        # add slitobjmap and objects for LRIS file3 ingestion
+        if is_lris and self.maps.desid:
+            design_id = list(self.maps.desid.values())[-1]
+            threading.Thread(
+                target=add_slit_coordinates,
+                args=(design_id, lris_out_file, self.log),
+                daemon=True).start()
 
         # clear maps before we do next MDF
         self.maps.obid.clear()

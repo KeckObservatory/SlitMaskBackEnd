@@ -10,10 +10,10 @@ import subprocess
 
 from collections import defaultdict
 from datetime import date, timedelta, datetime
-import datetime
 from slitmask_queries import get_query
 from flask import request
 from gnuplot5 import *
+
 
 import mask_constants as consts
 

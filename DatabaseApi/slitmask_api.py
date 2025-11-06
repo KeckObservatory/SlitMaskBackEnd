@@ -1354,15 +1354,26 @@ def get_mask_detail(db_obj, user_info):
 
     inputs:
         design-id - desId should exist in the database
+        guiname - the guiname of the mask,  guiname is unique
 
     :return: arrays JSON objects with of mask details
     """
     design_id = request.args.get('design-id')
-    if not design_id:
+    guiname = request.args.get('gui-name')
+    if not design_id and not guiname:
         return create_response(success=0, stat=422,
-                               err=f'design-id is a required parameter')
+                               err=f'either design-id or guiname is a required parameter.')
 
     curse = db_obj.get_dict_curse()
+
+    if not design_id:
+        if not do_query('guiname_to_design_id', curse, (guiname, )):
+            return create_response(success=0, err='Database Error!', stat=503)
+        results = gen_utils.get_dict_result(curse)
+        try:
+            design_id = results[0]['desid']
+        except Exception as err:
+            log.warning(f'no design id found for {guiname}: {err}')
 
     if user_info.user_type not in (consts.MASK_ADMIN, consts.MASK_USER):
         return create_response(success=0, stat=401,

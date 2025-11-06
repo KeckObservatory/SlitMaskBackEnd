@@ -73,6 +73,7 @@ class MaskInsert:
             result = self.db.cursor.fetchone()
             self.maps.desid[row['DesId']] = result['desid']
 
+
     def mask_blue(self, row, query):
         try:
             params = (
