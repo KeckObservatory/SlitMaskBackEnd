@@ -1343,6 +1343,36 @@ def set_perpetual_mask_use_date(db_obj, user_info):
 
 # -- end Admin only
 # -- long functions
+@app.route("/slitmask/mask-detail-script")
+def get_mask_detail_script():
+    """
+    get all database records related to this DesId or GUINAME.
+
+    api2_3.py - def getDesignDetails(db, desid)
+
+    inputs:
+        design-id - desId should exist in the database
+        guiname - the guiname of the mask,  guiname is unique
+
+    :return: arrays JSON objects with of mask details
+    """
+    design_id = request.args.get('design-id')
+    guiname = request.args.get('gui-name')
+
+    db_obj, user_info = init_api(keck_id=consts.MASK_ADMIN)
+
+    curse = db_obj.get_dict_curse()
+
+    if not design_id:
+        if not do_query('guiname_to_design_id', curse, (guiname, )):
+            return create_response(success=0, err='Database Error!', stat=503)
+        results = gen_utils.get_dict_result(curse)
+        try:
+            design_id = results[0]['desid']
+        except Exception as err:
+            log.warning(f'no design id found for {guiname}: {err}')
+
+    return get_details(curse, design_id)
 
 @app.route("/slitmask/mask-detail")
 @init_required
@@ -1360,6 +1390,7 @@ def get_mask_detail(db_obj, user_info):
     """
     design_id = request.args.get('design-id')
     guiname = request.args.get('gui-name')
+
     if not design_id and not guiname:
         return create_response(success=0, stat=422,
                                err=f'either design-id or guiname is a required parameter.')
@@ -1384,6 +1415,10 @@ def get_mask_detail(db_obj, user_info):
               f'{user_info.user_type}) to view mask with Design ID: {design_id}'
         return create_response(success=0, err=msg, stat=403)
 
+    return get_details(curse, design_id)
+
+
+def get_details(curse, design_id):
     # check the mask
     stat_code, err = gen_utils.chk_mask_exists(curse, design_id)
     if stat_code:
