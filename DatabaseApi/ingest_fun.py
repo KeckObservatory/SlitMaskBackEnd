@@ -221,7 +221,21 @@ class IngestFun:
             wrk_file = save_path.replace('.file3', '')
             shutil.copy2(save_path, wrk_file)
 
-            lris_out_file = self.convertLRIStoMDF(wrk_file, email)
+            lris_out_file, err_file = self.convertLRIStoMDF(wrk_file, email)
+
+            # check for LRIS file conversion failure
+            if not lris_out_file:
+                msg = f"Could not convert FILE3 {file.filename} to FITS.\n\n"
+                msg += "Error message:\n"
+                if err_file and os.path.exists(err_file):
+                    with open(err_file, "r") as f:
+                        for line in f:
+                            msg += line.rstrip("\n") + "\n"
+                else:
+                    msg += "(no error file produced)\n"
+
+                return False, [msg]
+
             hdul, err_report = self.open_autoslit_fits(lris_out_file)
 
             # the original .file3 file is overwritten as a fits by lsc2df
@@ -539,7 +553,7 @@ class IngestFun:
                            f"stderr {lsc2dferr}")
 
             # return empty string as the path of the output file
-            return ""
+            return None, lsc2dferr
         # end if status
 
         # when we last checked the Makefile for lsc2df creates KROOT/var/lsc2df
@@ -547,4 +561,4 @@ class IngestFun:
         mdfOutD = "/kroot/var/lsc2df"
         maskfits = "%s/%s.fits" % (mdfOutD, file3)
 
-        return maskfits
+        return maskfits, None
