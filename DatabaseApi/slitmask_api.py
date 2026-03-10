@@ -1364,6 +1364,16 @@ def get_mask_detail_script():
     curse = db_obj.get_dict_curse()
 
     if not design_id:
+        if not do_query('guiname_to_desid', curse, (guiname, )):
+            return create_response(success=0, err='Database Error!', stat=503)
+        results = gen_utils.get_dict_result(curse)
+        try:
+            design_id = results[0]['desid']
+        except Exception as err:
+            pass
+
+    # try another way
+    if not design_id:
         if not do_query('guiname_to_design_id', curse, (guiname, )):
             return create_response(success=0, err='Database Error!', stat=503)
         results = gen_utils.get_dict_result(curse)

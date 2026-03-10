@@ -405,6 +405,9 @@ auxiliary_queries = {
         JOIN maskdesign md ON mb.desid = md.desid 
         WHERE mb.guiname = %s;
         """,
+    "guiname_to_desid": f"""
+        select desid from maskblu where guiname = %s;
+        """,
     # this returns all with duplicate bluid -- different barcodes
     # "sias_type1": """
     #     SELECT b.date_use,c.maskid,b.guiname,a.instrume,d.lastnm,
