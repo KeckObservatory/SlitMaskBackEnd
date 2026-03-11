@@ -103,8 +103,7 @@ retrieval_queries = {
 
     "extend_update": """
         UPDATE MaskBlu SET Date_Use =
-         Date_Use + (%s * INTERVAL '1 day'),
-         stamp = CURRENT_DATE 
+         Date_Use + (%s * INTERVAL '1 day')
          WHERE DesId = %s;            
         """,
 
